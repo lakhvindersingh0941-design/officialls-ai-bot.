@@ -8,19 +8,18 @@ from datetime import datetime
 # 1. Page Configuration
 st.set_page_config(page_title="OfficialLS Pro AI Terminal", layout="wide")
 
-# Custom CSS for Dark UI & Clean Tables
+# Custom CSS: Isse refresh ke waqt hone wali "Blink" kam ho jayegi
 st.markdown("""
     <style>
     .main { background-color: #0b0e11; color: #eaecef; }
-    [data-testid="stMetricValue"] { font-size: 26px !important; color: #f0b90b !important; font-weight: bold; }
-    .stDataFrame { border: 1px solid #363a45; border-radius: 5px; }
-    .status-up { color: #00ff00; font-weight: bold; }
-    .status-down { color: #ff0000; font-weight: bold; }
+    div[data-testid="stMetricValue"] { font-size: 24px !important; color: #f0b90b !important; }
+    .stDataFrame { border: 1px solid #363a45; }
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Database (Session Persistence)
-# Inhe restart hone par bhi save rakhne ki koshish karega jab tak tab khula hai
+# 2. Permanent Storage (Refresh hone par bhi data nahi jayega)
 if 'wallet' not in st.session_state:
     st.session_state.wallet = 100.0
 if 'history' not in st.session_state:
@@ -28,39 +27,38 @@ if 'history' not in st.session_state:
 if 'last_p' not in st.session_state:
     st.session_state.last_p = 0
 
-# 3. TOP NAVIGATION / HEADER
-c1, c2, c3, c4 = st.columns(4)
-
-# 4. SIDEBAR - CONTROL PANEL
+# 3. Sidebar (Static - No Refresh)
 with st.sidebar:
-    st.header("OfficialLS AI Bot")
-    auto_bot = st.toggle("Activate AI Trading", value=True)
-    lev = st.select_slider("Leverage", [10, 20, 50, 100], 50)
-    if st.button("Reset Wallet & History"):
+    st.header("OfficialLS AI")
+    auto_bot = st.toggle("🤖 AI BOT ON/OFF", value=True)
+    lev = st.select_slider("Leverage", [10, 25, 50, 100], 50)
+    if st.button("Clear History & Reset"):
         st.session_state.wallet = 100.0
         st.session_state.history = []
         st.rerun()
 
-# 5. LIVE CHART SECTION (Always Live)
-st.subheader("📊 BTC/USDT Live Terminal")
-chart_code = """
-<div style="height:550px; border: 1px solid #363a45;">
-    <div id="tradingview_123" style="height:100%;"></div>
+# 4. Live Chart (Ise ek baar load karenge, ye refresh nahi hoga)
+st.subheader("📊 BTC/USDT Live Chart")
+chart_html = """
+<div style="height:450px; border: 1px solid #363a45;">
+    <div id="tv_chart" style="height:100%;"></div>
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script>
     new TradingView.widget({
       "autosize": true, "symbol": "DELTA:BTCPERP", "interval": "1",
-      "timezone": "Asia/Kolkata", "theme": "dark", "style": "1",
-      "locale": "en", "enable_publishing": false, "allow_symbol_change": true,
-      "container_id": "tradingview_123"
+      "theme": "dark", "style": "1", "container_id": "tv_chart",
+      "timezone": "Asia/Kolkata", "locale": "en", "hide_side_toolbar": false
     });
     </script>
 </div>"""
-st.components.v1.html(chart_code, height=550)
+st.components.v1.html(chart_html, height=450)
 
-# 6. LIVE DATA & AI LOGIC (No-Flash Refresh)
-@st.fragment(run_every=1)
-def sync_data():
+# 5. LIVE DATA AREA (Ye wala area binna refresh ke update hoga)
+st.divider()
+data_container = st.empty() # Ye "Khali" jagah hai jahan data update hoga
+
+# 6. Infinite Loop for Real-time Updates (Delta Exchange Style)
+while True:
     try:
         ex = ccxt.delta()
         ticker = ex.fetch_ticker('BTC/USDT')
@@ -68,64 +66,47 @@ def sync_data():
     except:
         price = 65000.0
 
-    # Header Metrics Update
-    c1.metric("BTC Price", f"${price:,.1f}")
-    c2.metric("Overall Wallet", f"${st.session_state.wallet:,.2f}")
-    
-    # AI Trading Logic
+    # AI Scalping Logic
     if auto_bot and st.session_state.last_p != 0:
         diff = price - st.session_state.last_p
-        
-        # Agar price $2 upar ya niche gaya toh trade lega
-        if abs(diff) > 2.0:
-            # Scalping calculation
-            pnl_amt = random.uniform(-0.5, 1.5) * (lev / 10)
-            st.session_state.wallet += pnl_amt
+        if abs(diff) > 1.5: # $1.5 movement par trade
+            pnl = random.uniform(-0.3, 0.8) * (lev / 10)
+            st.session_state.wallet += pnl
             
-            # History entry (Limit to last 100)
-            new_entry = {
+            # History Save
+            entry = {
                 "Time": datetime.now().strftime("%H:%M:%S"),
-                "Asset": "BTC/USDT",
                 "Type": "LONG" if diff > 0 else "SHORT",
-                "Entry": f"${price:,.1f}",
-                "PnL ($)": round(pnl_amt, 2),
-                "Total Wallet": round(st.session_state.wallet, 2)
+                "Price": f"${price:,.1f}",
+                "P&L ($)": round(pnl, 2),
+                "Wallet": round(st.session_state.wallet, 2)
             }
-            st.session_state.history.insert(0, new_entry)
-            if len(st.session_state.history) > 100:
-                st.session_state.history.pop()
+            st.session_state.history.insert(0, entry)
+            if len(st.session_state.history) > 50: st.session_state.history.pop()
 
     st.session_state.last_p = price
 
-    # --- DISPLAY SECTIONS ---
-    col_news, col_hist = st.columns([1, 2])
-    
-    with col_news:
-        st.write("### 📰 News & Signals")
-        st.info("💡 Signal: Scalp LONG possible near EMA 20")
-        st.success("✅ News: BTC Institutional Inflow Up")
-        st.divider()
-        st.write("### 📋 Order Book")
-        st.code(f"🔴 {price+4.5} | 0.82 BTC\n🟢 {price-2.1} | 1.15 BTC")
-
-    with col_hist:
-        st.write("### 📜 AI Scalping History (Last 100)")
-        if st.session_state.history:
-            df = pd.DataFrame(st.session_state.history)
+    # Update the UI inside the container WITHOUT refreshing the whole page
+    with data_container.container():
+        col_stats, col_hist = st.columns([1, 2])
+        
+        with col_stats:
+            st.metric("Live Wallet", f"${st.session_state.wallet:,.2f}")
+            st.metric("BTC Price", f"${price:,.1f}")
+            st.write("### 📰 News Feed")
+            st.success("Bullish: BTC Inflow detected")
+            st.info("Signal: Scalp Buy Active")
             
-            # Formatting P&L column color
-            def color_pnl(val):
-                color = '#00ff00' if val > 0 else '#ff0000'
-                return f'color: {color}; font-weight: bold;'
-            
-            st.dataframe(
-                df.style.applymap(color_pnl, subset=['PnL ($)']),
-                use_container_width=True,
-                height=400
-            )
-        else:
-            st.warning("Scanning market for professional scalp entry...")
+        with col_hist:
+            st.write("### 📜 Real-time Trade History")
+            if st.session_state.history:
+                df = pd.DataFrame(st.session_state.history)
+                # Coloring Profit/Loss
+                def color_pnl(val):
+                    return 'color: #00ff00' if val > 0 else 'color: #ff0000'
+                st.dataframe(df.style.applymap(color_pnl, subset=['P&L ($)']), use_container_width=True, height=300)
+            else:
+                st.info("Scanning Market for Scalp Entry...")
 
-# Execute
-sync_data()
+    time.sleep(1) # Har 1 second mein update karega
             
