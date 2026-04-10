@@ -3,12 +3,12 @@ import pandas as pd
 import ccxt
 import time
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 1. Page Config
 st.set_page_config(page_title="OfficialLS Pro AI Terminal", layout="wide")
 
-# Custom CSS for Professional UI
+# Custom CSS
 st.markdown("""
     <style>
     .main { background-color: #0b0e11; color: #eaecef; }
@@ -17,9 +17,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Database Setup
+# 2. Database Setup (Balance changed to $10)
 if 'wallet' not in st.session_state:
-    st.session_state.wallet = 100.0
+    st.session_state.wallet = 10.0
 if 'history' not in st.session_state:
     st.session_state.history = []
 if 'last_p' not in st.session_state:
@@ -31,9 +31,9 @@ with st.sidebar:
     auto_bot = st.toggle("Activate AI Trading", value=True)
     lev = st.select_slider("Leverage Setting", [10, 25, 50, 100], 50)
     st.divider()
-    st.info("Delta Fee: 0.05% Market Order (Buying & Selling)")
-    if st.button("Reset Account"):
-        st.session_state.wallet = 100.0
+    st.info("Balance: $10 | Delta Fees: 0.05% (B+S)")
+    if st.button("Reset Account ($10)"):
+        st.session_state.wallet = 10.0
         st.session_state.history = []
         st.rerun()
 
@@ -65,24 +65,26 @@ while True:
     except:
         price = st.session_state.last_p if st.session_state.last_p != 0 else 71200.0
 
-    # AI Scalping Logic with Leverage Based Fees
+    # AI Scalping Logic
     if auto_bot and st.session_state.last_p != 0:
         diff = price - st.session_state.last_p
         
         if abs(diff) > 2.0:
-            # Calculation
-            margin = st.session_state.wallet * 0.1 # 10% Margin use
-            position_value = margin * lev # Leverage ke hisab se total trade value
+            # IST Time Calculation (Adding 5.30 hours to UTC)
+            ist_time = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%d-%m %H:%M:%S")
             
-            # Buying Fee (0.05%) & Selling Fee (0.05%)
-            buy_fee = position_value * 0.0005
-            sell_fee = position_value * 0.0005
-            total_trade_fee = buy_fee + sell_fee
+            # Margin & Position
+            margin = st.session_state.wallet * 0.1 
+            pos_value = margin * lev 
             
-            # Profit/Loss Calculation
-            gross_pnl = random.uniform(-0.6, 1.4) * (lev / 10)
-            net_pnl = gross_pnl - total_trade_fee
+            # Fees (0.05% Buy + 0.05% Sell)
+            buy_fee = pos_value * 0.0005
+            sell_fee = pos_value * 0.0005
+            total_fee = buy_fee + sell_fee
             
+            # Profit/Loss
+            gross = random.uniform(-0.6, 1.4) * (lev / 10)
+            net_pnl = gross - total_fee
             st.session_state.wallet += net_pnl
             
             # SL/TP
@@ -91,15 +93,15 @@ while True:
 
             # Save to History
             st.session_state.history.insert(0, {
-                "Time": datetime.now().strftime("%H:%M:%S"),
-                "Type": "LONG" if diff > 0 else "SHORT",
+                "Time (IST)": ist_time,
+                "Side": "LONG" if diff > 0 else "SHORT",
                 "Entry": round(price, 1),
                 "SL": round(sl, 1),
                 "TP": round(tp, 1),
-                "Pos Value": f"${position_value:,.1f}",
+                "Pos Value": f"${pos_value:,.1f}",
                 "Buy Fee": round(buy_fee, 3),
                 "Sell Fee": round(sell_fee, 3),
-                "Total Fee": round(total_trade_fee, 3),
+                "Total Fee": round(total_fee, 3),
                 "Net PNL": round(net_pnl, 2),
                 "Wallet": round(st.session_state.wallet, 2)
             })
@@ -111,28 +113,25 @@ while True:
         m1, m2, m3 = st.columns(3)
         m1.metric("Live BTC Price", f"${price:,.1f}")
         m2.metric("Overall Wallet", f"${st.session_state.wallet:,.2f}")
-        m3.metric("Selected Leverage", f"{lev}x")
+        m3.metric("Leverage", f"{lev}x")
 
-        cn, ch = st.columns([1, 2.8])
+        cn, ch = st.columns([1, 3])
         with cn:
             st.subheader("📰 Market AI")
             st.success("Bullish Sentiment Active")
-            st.info("Signal: Scalp near EMA")
+            st.info("Signal: Scalp Buy Near Support")
             st.divider()
             st.caption("Live Order Book")
             st.code(f"🔴 {price+2} | 1.5 BTC\n🟢 {price-1} | 2.2 BTC", language='text')
 
         with ch:
-            st.subheader("📜 AI History (Including Delta Fees)")
+            st.subheader("📜 Professional History (IST Time)")
             if st.session_state.history:
                 df = pd.DataFrame(st.session_state.history)
-                # Styling Net PNL
                 def color_pnl(v):
                     return f'color: {"#00ff00" if v > 0 else "#ff0000"}; font-weight: bold;'
-                
                 st.dataframe(df.style.map(color_pnl, subset=['Net PNL']), use_container_width=True)
             else:
-                st.info("AI Bot is scanning for scalp moves...")
+                st.info("AI Bot scanning for entry signals...")
 
     time.sleep(1)
-        
