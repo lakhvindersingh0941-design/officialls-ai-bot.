@@ -6,9 +6,9 @@ import random
 from datetime import datetime
 
 # 1. Page Config
-st.set_page_config(page_title="OfficialLS 24/7 AI Terminal", layout="wide")
+st.set_page_config(page_title="OfficialLS Pro AI Terminal", layout="wide")
 
-# 2. Database/Session Management
+# 2. Database Setup
 if 'wallet' not in st.session_state:
     st.session_state.wallet = 100.0
 if 'history' not in st.session_state:
@@ -18,13 +18,14 @@ if 'last_p' not in st.session_state:
 
 # 3. Sidebar
 with st.sidebar:
-    st.header("OfficialLS AI Bot")
+    st.header("OfficialLS AI Control")
     auto_bot = st.toggle("Activate AI Trading", value=True)
-    lev = st.select_slider("Leverage", [10, 20, 50, 100], 50)
-    st.info("Note: Delta Fee (0.05%) included in PnL")
+    lev = st.select_slider("Select Leverage", [10, 25, 50, 100], 50)
+    st.write("---")
+    st.caption("Fee Logic: 0.05% on Total Position Value (Leverage Adjusted)")
 
 # 4. LIVE CHART
-st.title("📊 OfficialLS AI 24/7 Terminal")
+st.title("📊 OfficialLS AI Professional Terminal")
 chart_html = """
 <div style="height:480px; border: 1px solid #363a45; border-radius: 8px; overflow: hidden;">
     <div id="tv_chart" style="height:100%;"></div>
@@ -39,7 +40,7 @@ chart_html = """
 </div>"""
 st.components.v1.html(chart_html, height=480)
 
-# 5. DATA SYNC AREA
+# 5. DATA SYNC
 st.divider()
 placeholder = st.empty()
 
@@ -51,59 +52,55 @@ while True:
     except:
         price = st.session_state.last_p if st.session_state.last_p != 0 else 70000.0
 
-    # AI Scalping Logic with SL, TP and Fees
+    # AI Scalping Logic with DYNAMIC FEES
     if auto_bot and st.session_state.last_p != 0:
         diff = price - st.session_state.last_p
+        
+        # AI identifying a volatility move
         if abs(diff) > 2.0:
-            # 1. SL/TP Calculation (Visual only)
-            sl = price - (price * 0.005) if diff > 0 else price + (price * 0.005)
-            tp = price + (price * 0.01) if diff > 0 else price - (price * 0.01)
+            # Margin used: 10% of wallet
+            margin_used = st.session_state.wallet * 0.1
+            # Total Position Value (Margin x Leverage)
+            total_position_value = margin_used * lev
             
-            # 2. Brokerage Calculation (Delta approx 0.05% per side)
-            notional_value = (st.session_state.wallet * 0.1) * lev # Using 10% of wallet
-            brokerage = notional_value * 0.0005 * 2 # Entry + Exit
+            # Delta Exchange Fee (0.05% Entry + 0.05% Exit = 0.1% total on position value)
+            total_fee = total_position_value * 0.001 
             
-            # 3. Net PnL calculation
-            gross_pnl = random.uniform(-0.5, 1.2) * (lev / 10)
-            net_pnl = gross_pnl - brokerage
+            # Gross P&L before fees
+            gross_pnl = random.uniform(-0.4, 1.1) * (lev / 10)
+            # Net P&L after dynamic fees
+            net_pnl = gross_pnl - total_fee
             
             st.session_state.wallet += net_pnl
             
+            # Save Detail History
             st.session_state.history.insert(0, {
                 "Time": datetime.now().strftime("%H:%M:%S"),
-                "Type": "LONG" if diff > 0 else "SHORT",
-                "Entry": round(price, 1),
-                "SL": round(sl, 1),
-                "TP": round(tp, 1),
-                "Gross PnL": round(gross_pnl, 2),
-                "Fee ($)": round(brokerage, 2),
+                "Side": "LONG" if diff > 0 else "SHORT",
+                "Entry": f"${price:,.1f}",
+                "Leverage": f"{lev}x",
+                "Position Value": f"${total_position_value:,.1f}",
+                "Fee ($)": round(total_fee, 3),
                 "Net PnL ($)": round(net_pnl, 2),
                 "Wallet": round(st.session_state.wallet, 2)
             })
-            if len(st.session_state.history) > 100: st.session_state.history.pop()
+            if len(st.session_state.history) > 50: st.session_state.history.pop()
 
     st.session_state.last_p = price
 
     with placeholder.container():
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Live Price", f"${price:,.1f}")
-        m2.metric("Wallet (Net)", f"${st.session_state.wallet:,.2f}")
-        m3.metric("Leverage", f"{lev}x")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Live BTC", f"${price:,.1f}")
+        c2.metric("Wallet Balance", f"${st.session_state.wallet:,.2f}")
+        c3.metric("Leverage", f"{lev}x")
 
-        col_news, col_hist = st.columns([1, 3])
-        with col_news:
-            st.subheader("Market News")
-            st.success("Bullish Sentiment: Low ETF Outflow")
-            st.info("AI: Scanning Volatility")
-
-        with col_hist:
-            st.subheader("Professional Trade History (with Fees & SL/TP)")
-            if st.session_state.history:
-                df = pd.DataFrame(st.session_state.history)
-                def style_pnl(v):
-                    return f'color: {"#00ff00" if v > 0 else "#ff0000"}; font-weight: bold;'
-                st.dataframe(df.style.map(style_pnl, subset=['Net PnL ($)']), use_container_width=True)
-            else:
-                st.info("Waiting for market volatility to scalp...")
+        st.subheader("📜 Professional Trade Log")
+        if st.session_state.history:
+            df = pd.DataFrame(st.session_state.history)
+            def style_pnl(v):
+                return f'color: {"#00ff00" if v > 0 else "#ff0000"}; font-weight: bold;'
+            st.dataframe(df.style.map(style_pnl, subset=['Net PnL ($)']), use_container_width=True)
+        else:
+            st.info("AI scanning market moves...")
 
     time.sleep(1)
