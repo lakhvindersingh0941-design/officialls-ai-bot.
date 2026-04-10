@@ -6,101 +6,126 @@ import random
 from datetime import datetime
 
 # 1. Page Configuration
-st.set_page_config(page_title="OfficialLS Pro AI Terminal", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="OfficialLS Pro AI Terminal", layout="wide")
 
-# Custom CSS for Professional Look
+# Custom CSS for Dark UI & Clean Tables
 st.markdown("""
     <style>
     .main { background-color: #0b0e11; color: #eaecef; }
-    [data-testid="stMetricValue"] { font-size: 24px !important; color: #f0b90b !important; }
-    .stTable { background-color: #1e2329; border: 1px solid #363a45; }
+    [data-testid="stMetricValue"] { font-size: 26px !important; color: #f0b90b !important; font-weight: bold; }
+    .stDataFrame { border: 1px solid #363a45; border-radius: 5px; }
+    .status-up { color: #00ff00; font-weight: bold; }
+    .status-down { color: #ff0000; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Database Setup
-if 'balance' not in st.session_state:
-    st.session_state.balance = 100.0
-if 'trades' not in st.session_state:
-    st.session_state.trades = []
+# 2. Database (Session Persistence)
+# Inhe restart hone par bhi save rakhne ki koshish karega jab tak tab khula hai
+if 'wallet' not in st.session_state:
+    st.session_state.wallet = 100.0
+if 'history' not in st.session_state:
+    st.session_state.history = []
 if 'last_p' not in st.session_state:
     st.session_state.last_p = 0
 
-# 3. SIDEBAR CONTROLS
-st.sidebar.title("🚀 OfficialLS Control")
-auto_bot = st.sidebar.toggle("🤖 ACTIVATE AI BOT", value=True)
-lev = st.sidebar.select_slider("Leverage Settings", [10, 25, 50, 100], 50)
-st.sidebar.divider()
-st.sidebar.metric("Your Wallet", f"${st.session_state.balance:.2f}")
+# 3. TOP NAVIGATION / HEADER
+c1, c2, c3, c4 = st.columns(4)
 
-# 4. LIVE TRADING VIEW (Iska refresh se koi lena dena nahi, ye hamesha live chalega)
-st.subheader("📊 Live Technical Terminal")
+# 4. SIDEBAR - CONTROL PANEL
+with st.sidebar:
+    st.header("OfficialLS AI Bot")
+    auto_bot = st.toggle("Activate AI Trading", value=True)
+    lev = st.select_slider("Leverage", [10, 20, 50, 100], 50)
+    if st.button("Reset Wallet & History"):
+        st.session_state.wallet = 100.0
+        st.session_state.history = []
+        st.rerun()
+
+# 5. LIVE CHART SECTION (Always Live)
+st.subheader("📊 BTC/USDT Live Terminal")
 chart_code = """
-<div style="height:500px; border: 1px solid #363a45; border-radius: 5px;">
-    <div id="tv-chart" style="height:100%;"></div>
+<div style="height:550px; border: 1px solid #363a45;">
+    <div id="tradingview_123" style="height:100%;"></div>
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script>
     new TradingView.widget({
-      "autosize":true, "symbol":"DELTA:BTCPERP", "interval":"1",
-      "timezone":"Asia/Kolkata", "theme":"dark", "style":"1",
-      "locale":"en", "toolbar_bg":"#f1f3f6", "enable_publishing":false,
-      "withdateranges":true, "hide_side_toolbar":false, "allow_symbol_change":true,
-      "container_id":"tv-chart"
+      "autosize": true, "symbol": "DELTA:BTCPERP", "interval": "1",
+      "timezone": "Asia/Kolkata", "theme": "dark", "style": "1",
+      "locale": "en", "enable_publishing": false, "allow_symbol_change": true,
+      "container_id": "tradingview_123"
     });
     </script>
 </div>"""
-st.components.v1.html(chart_code, height=500)
+st.components.v1.html(chart_code, height=550)
 
-# 5. DATA SECTION (News & History) - Isme hum fragment use karenge taaki refresh na ho
-@st.fragment(run_every=2)
-def update_data():
-    # Fetch Real Price
+# 6. LIVE DATA & AI LOGIC (No-Flash Refresh)
+@st.fragment(run_every=1)
+def sync_data():
     try:
         ex = ccxt.delta()
-        tk = ex.fetch_ticker('BTC/USDT')
-        price = tk['last']
+        ticker = ex.fetch_ticker('BTC/USDT')
+        price = ticker['last']
     except:
         price = 65000.0
 
-    # AI BOT LOGIC (Scalping 1m)
+    # Header Metrics Update
+    c1.metric("BTC Price", f"${price:,.1f}")
+    c2.metric("Overall Wallet", f"${st.session_state.wallet:,.2f}")
+    
+    # AI Trading Logic
     if auto_bot and st.session_state.last_p != 0:
         diff = price - st.session_state.last_p
-        # Agar price 1 USD bhi hila, toh AI scalping trade execute karega
-        if abs(diff) > 1.0:
-            # Scalping calculation (High Frequency)
-            pnl_factor = random.uniform(-0.2, 0.5) 
-            profit = (st.session_state.balance * 0.05) * pnl_factor * (lev / 10)
+        
+        # Agar price $2 upar ya niche gaya toh trade lega
+        if abs(diff) > 2.0:
+            # Scalping calculation
+            pnl_amt = random.uniform(-0.5, 1.5) * (lev / 10)
+            st.session_state.wallet += pnl_amt
             
-            st.session_state.balance += profit
-            st.session_state.trades.insert(0, {
+            # History entry (Limit to last 100)
+            new_entry = {
                 "Time": datetime.now().strftime("%H:%M:%S"),
-                "Type": "SCALP LONG" if diff > 0 else "SCALP SHORT",
+                "Asset": "BTC/USDT",
+                "Type": "LONG" if diff > 0 else "SHORT",
                 "Entry": f"${price:,.1f}",
-                "PnL ($)": round(profit, 2),
-                "Wallet": round(st.session_state.balance, 2)
-            })
-    
+                "PnL ($)": round(pnl_amt, 2),
+                "Total Wallet": round(st.session_state.wallet, 2)
+            }
+            st.session_state.history.insert(0, new_entry)
+            if len(st.session_state.history) > 100:
+                st.session_state.history.pop()
+
     st.session_state.last_p = price
 
-    # Display Side by Side
+    # --- DISPLAY SECTIONS ---
     col_news, col_hist = st.columns([1, 2])
     
     with col_news:
-        st.write("### 📰 Live News Feed")
-        st.success("🔥 BTC Inflow: High (Bullish)")
-        st.info("📊 RSI (5m): Oversold - Scalp Buy")
-        st.warning("⚠️ Volatility: Extreme")
+        st.write("### 📰 News & Signals")
+        st.info("💡 Signal: Scalp LONG possible near EMA 20")
+        st.success("✅ News: BTC Institutional Inflow Up")
         st.divider()
-        st.write("### 📉 Live Order Book")
-        st.code(f"🔴 {price+5} | 0.5 BTC\n🟢 {price-5} | 1.2 BTC", language='text')
+        st.write("### 📋 Order Book")
+        st.code(f"🔴 {price+4.5} | 0.82 BTC\n🟢 {price-2.1} | 1.15 BTC")
 
     with col_hist:
-        st.write("### 📜 AI Trade History (Scalping)")
-        if st.session_state.trades:
-            df = pd.DataFrame(st.session_state.trades).head(8)
-            st.table(df)
+        st.write("### 📜 AI Scalping History (Last 100)")
+        if st.session_state.history:
+            df = pd.DataFrame(st.session_state.history)
+            
+            # Formatting P&L column color
+            def color_pnl(val):
+                color = '#00ff00' if val > 0 else '#ff0000'
+                return f'color: {color}; font-weight: bold;'
+            
+            st.dataframe(
+                df.style.applymap(color_pnl, subset=['PnL ($)']),
+                use_container_width=True,
+                height=400
+            )
         else:
-            st.info("AI is scanning indicators & patterns...")
+            st.warning("Scanning market for professional scalp entry...")
 
-# Run the update function
-update_data()
+# Execute
+sync_data()
             
