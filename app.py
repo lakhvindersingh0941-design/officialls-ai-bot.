@@ -8,7 +8,7 @@ from datetime import datetime
 # 1. Page Config
 st.set_page_config(page_title="OfficialLS Pro Terminal", layout="wide")
 
-# 2. State Initialization (Fixing the Indent)
+# 2. State Initialization
 if 'balance' not in st.session_state:
     st.session_state.balance = 100.0
 if 'trades' not in st.session_state:
@@ -16,17 +16,17 @@ if 'trades' not in st.session_state:
 if 'last_price' not in st.session_state:
     st.session_state.last_price = 0
 
-# 3. Sidebar
-with st.sidebar:
-    st.title("OfficialLS AI")
-    mode = st.selectbox("Wallet", ["Demo ($100)", "Live Delta"])
-    lev = st.select_slider("Leverage", options=[10, 20, 50, 100, 125], value=50)
-    auto_ai = st.toggle("Activate AI Auto-Pilot", value=True)
-    if st.button("Reset Balance"):
-        st.session_state.balance = 100.0
-        st.session_state.trades = []
+# 3. Sidebar (No Indent Error)
+st.sidebar.title("OfficialLS AI Control")
+mode = st.sidebar.selectbox("Wallet", ["Demo ($100)", "Live Delta"])
+lev = st.sidebar.select_slider("Leverage", options=[10, 20, 50, 100], value=50)
+auto_ai = st.sidebar.toggle("Activate AI Auto-Pilot", value=True)
 
-# 4. Live Data
+if st.sidebar.button("Reset Wallet"):
+    st.session_state.balance = 100.0
+    st.session_state.trades = []
+
+# 4. Live Data Fetch
 try:
     exchange = ccxt.delta()
     ticker = exchange.fetch_ticker('BTC/USDT')
@@ -35,6 +35,55 @@ try:
 except:
     price, change = 65000.0, 0.0
 
+# 5. Dashboard Metrics
+c1, c2, c3 = st.columns(3)
+c1.metric("BTC/USDT", f"${price:,.2f}", f"{change}%")
+c2.metric("Balance", f"${st.session_state.balance:.2f}")
+c3.metric("Leverage", f"{lev}x")
+
+# 6. Professional TradingView Chart
+tv_html = f"""
+<div style="height:500px;">
+    <div id="chart" style="height:100%;"></div>
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <script type="text/javascript">
+    new TradingView.widget({{
+      "autosize": true, "symbol": "DELTA:BTCPERP", "interval": "1",
+      "theme": "dark", "style": "1", "locale": "en", "container_id": "chart"
+    }});
+    </script>
+</div>"""
+st.components.v1.html(tv_html, height=500)
+
+# 7. AI Auto-Trading Logic
+if auto_ai and st.session_state.last_price != 0:
+    diff = ((price - st.session_state.last_price) / st.session_state.last_price) * 100
+    if abs(diff) > 0.01:
+        pnl = (st.session_state.balance * 0.1) * (diff * (lev/10))
+        st.session_state.balance += pnl
+        st.session_state.trades.insert(0, {
+            "Time": datetime.now().strftime("%H:%M:%S"),
+            "P&L": round(pnl, 2),
+            "Balance": round(st.session_state.balance, 2)
+        })
+
+st.session_state.last_price = price
+
+# 8. Market News & History
+col_a, col_b = st.columns([1, 2])
+with col_a:
+    st.subheader("AI News Feed")
+    st.success("Bullish Sentiment: Strong BTC Inflows")
+    st.warning("Market Volatility: High")
+
+with col_b:
+    st.subheader("Trade History")
+    if st.session_state.trades:
+        st.table(pd.DataFrame(st.session_state.trades))
+
+# 9. Auto-Refresh
+time.sleep(2)
+st.rerun()
 # 5. UI Layout
 c1, c2, c3 = st.columns(3)
 c1.metric("BTC/USDT", f"${price:,.2f}", f"{change}%")
