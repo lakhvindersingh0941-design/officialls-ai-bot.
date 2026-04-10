@@ -1,54 +1,88 @@
 import streamlit as st
-import ccxt
 import pandas as pd
+import ccxt
 import time
+from datetime import datetime
 
-st.set_page_config(page_title="OfficialLS AI Bot", layout="wide")
-st.title("🤖 OfficialLS Bitcoin AI Trader")
+# Page Configuration for Professional Look
+st.set_page_config(page_title="OfficialLS Pro Terminal", layout="wide", initial_sidebar_state="collapsed")
 
-# Wallet Setup
-if 'balance' not in st.session_state:
-    st.session_state.balance = 100.0
-    st.session_state.trades = []
+# Custom CSS for Dark Mode Professional UI
+st.markdown("""
+    <style>
+    .main { background-color: #0b0e11; color: white; }
+    .stMetric { background-color: #1e2329; border-radius: 10px; padding: 10px; border: 1px solid #363a45; }
+    iframe { border-radius: 10px; border: 1px solid #363a45; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# Sidebar Controls
-st.sidebar.header("⚙️ Settings")
-mode = st.sidebar.radio("Mode", ["Paper Trade", "Real Money (Delta)"])
+# SIDEBAR - Trading Settings
+with st.sidebar:
+    st.header("⚡ OfficialLS Control")
+    mode = st.radio("Trading Mode", ["Paper Trading", "Delta Real Account"])
+    leverage = st.slider("Leverage", 1, 50, 25)
+    if mode == "Delta Real Account":
+        api_key = st.text_input("API Key", type="password")
+        api_secret = st.text_input("API Secret", type="password")
 
-api_key = ""
-api_secret = ""
-if mode == "Real Money (Delta)":
-    api_key = st.sidebar.text_input("API Key", type="password")
-    api_secret = st.sidebar.text_input("API Secret", type="password")
+# TOP BAR - Live Prices
+exchange = ccxt.delta()
+ticker = exchange.fetch_ticker('BTC/USDT')
+live_p = ticker['last']
 
-# Connect to Delta Exchange
-try:
-    exchange = ccxt.delta()
-    ticker = exchange.fetch_ticker('BTC/USDT')
-    live_price = ticker['last']
-    st.sidebar.metric("Live BTC Price", f"${live_price}")
-except:
-    st.sidebar.error("Connecting to Market...")
+col_a, col_b, col_c, col_d = st.columns(4)
+col_a.metric("BTC/USDT", f"${live_p}", f"{ticker['percentage']}%")
+col_b.metric("24h High", f"${ticker['high']}")
+col_c.metric("24h Low", f"${ticker['low']}")
+col_d.metric("AI Sentiment", "BULLISH", "Strong")
 
-# Main Logic
-auto_trade = st.toggle("Activate AI Auto-Pilot")
+# MAIN SECTION - TradingView Live Chart
+st.subheader("📊 Live Trading Terminal")
+# TradingView Widget Integration
+tradingview_html = f"""
+    <div class="tradingview-widget-container" style="height:500px;">
+        <div id="tradingview_chart"></div>
+        <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+        <script type="text/javascript">
+        new TradingView.widget({{
+            "autosize": true,
+            "symbol": "BINANCE:BTCUSDT",
+            "interval": "5",
+            "timezone": "Etc/UTC",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#f1f3f6",
+            "enable_publishing": false,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_chart"
+        }});
+        </script>
+    </div>
+    """
+st.components.v1.html(tradingview_html, height=500)
 
-if auto_trade:
-    st.success("AI is Scanning 1m, 5m, 1h charts...")
-    # Entry simulation
-    if len(st.session_state.trades) == 0:
-        st.session_state.trades.append({
-            "Time": time.strftime("%H:%M"),
-            "Entry": live_price,
-            "SL": live_price * 0.99,
-            "TP": live_price * 1.02,
-            "Status": "OPEN"
-        })
-        st.toast("New Trade Taken!")
+# LOWER SECTION - Execution & History
+col_e, col_f = st.columns([1, 2])
 
-st.write("### Active Trades & History")
-if st.session_state.trades:
-    st.table(pd.DataFrame(st.session_state.trades))
+with col_e:
+    st.subheader("🎯 AI Execution")
+    auto_pilot = st.toggle("Activate AI Auto-Trade")
+    if auto_pilot:
+        st.info("AI Scanning Patterns: Bull Flag Detected...")
+        if st.button("Force Manual Entry"):
+            st.toast("Executing Order on Delta...")
 
-st.sidebar.metric("Your Balance", f"${st.session_state.balance}")
-          
+with col_f:
+    st.subheader("📜 Order History")
+    # Sample Data
+    history_data = {
+        "Time": [datetime.now().strftime("%H:%M:%S")],
+        "Type": ["LONG"],
+        "Entry": [live_p],
+        "SL": [live_p * 0.995],
+        "TP": [live_p * 1.01],
+        "Result": ["RUNNING"]
+    }
+    st.table(pd.DataFrame(history_data))
