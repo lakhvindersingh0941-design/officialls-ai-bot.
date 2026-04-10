@@ -5,19 +5,22 @@ import time
 import random
 from datetime import datetime
 
-# Page Settings
-st.set_page_config(page_title="OfficialLS Pro Terminal", layout="wide", initial_sidebar_state="expanded")
+# --- UI CONFIGURATION ---
+st.set_page_config(page_title="OfficialLS | Pro Terminal", layout="wide", initial_sidebar_state="expanded")
 
-# CSS for Full Screen Chart and Professional Look
+# Professional Dark Theme CSS
 st.markdown("""
     <style>
-    .main { background-color: #0b0e11; }
-    div[data-testid="stMetricValue"] { font-size: 24px; color: #f0b90b; }
-    .stTable { background-color: #1e2329; }
+    .main { background-color: #0b0e11; color: #eaecef; }
+    [data-testid="stMetricValue"] { font-size: 28px !important; color: #f0b90b !important; font-weight: bold; }
+    .stTable { background-color: #1e2329; border: 1px solid #363a45; }
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre; background-color: #1e2329; border-radius: 4px 4px 0px 0px; color: #848e9c; }
+    .stTabs [aria-selected="true"] { color: #f0b90b; border-bottom: 2px solid #f0b90b; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- SESSION STATE (Database for Balance & History) ---
+# --- DATABASE / STATE ---
 if 'balance' not in st.session_state:
     st.session_state.balance = 100.0
 if 'trades' not in st.session_state:
@@ -25,15 +28,111 @@ if 'trades' not in st.session_state:
 if 'last_price' not in st.session_state:
     st.session_state.last_price = 0
 
-# --- SIDEBAR CONTROLS ---
+# --- SIDEBAR (TRADING PANEL) ---
 with st.sidebar:
-    st.header("⚡ Control Panel")
-    mode = st.selectbox("Trading Mode", ["Paper Trading", "Real Delta Account"])
-    lev = st.select_slider("Select Leverage", options=[10, 20, 50, 100])
-    auto_ai = st.toggle("🤖 Activate AI Auto-Pilot", value=True)
+    st.image("https://img.icons8.com/color/96/bitcoin--v1.png", width=80)
+    st.title("OfficialLS AI")
+    st.divider()
     
-    if st.button("Reset Paper Balance ($100)"):
-        st.session_state.balance = 100.0
+    mode = st.selectbox("Wallet Type", ["Demo Account ($100)", "Live Delta Wallet"])
+    lev = st.select_slider("Leverage", options=[10, 20, 50, 100, 125], value=50)
+    
+    st.subheader("Order Placement")
+    order_type = st.radio("Side", ["BUY / LONG", "SELL / SHORT"], horizontal=True)
+    margin_use = st.slider("Margin Use (%)", 1, 100, 10)
+    
+    if st.button("Manual Trade Exec", use_container_width=True):
+        st.toast("Executing Order...")
+
+# --- LIVE DATA FETCH ---
+exchange = ccxt.delta()
+try:
+    ticker = exchange.fetch_ticker('BTC/USDT')
+    price = ticker['last']
+    change = ticker['percentage']
+except:
+    price, change = 65000.0, 1.5
+
+# --- DASHBOARD HEADER ---
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("BTC/USDT Live", f"${price:,.2f}", f"{change}%")
+c2.metric("Available Balance", f"${st.session_state.balance:.2f}")
+c3.metric("Unrealized PNL", "$0.00", "0.00%")
+c4.metric("Liquidation Price", f"${price * 0.85:,.2f}", delta_color="inverse")
+
+# --- MAIN CONTENT (CHART & NEWS) ---
+col_main, col_side = st.columns([3, 1])
+
+with col_main:
+    st.subheader("🔥 Live TradingView Terminal")
+    tv_widget = f"""
+    <div style="height:550px;">
+        <div id="chart" style="height:100%;"></div>
+        <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+        <script type="text/javascript">
+        new TradingView.widget({{
+          "autosize": true, "symbol": "DELTA:BTCPERP", "interval": "1",
+          "timezone": "Asia/Kolkata", "theme": "dark", "style": "1",
+          "locale": "en", "enable_publishing": false, "allow_symbol_change": true,
+          "container_id": "chart", "withdateranges": true, "hide_side_toolbar": false
+        }});
+        </script>
+    </div>
+    """
+    st.components.v1.html(tv_widget, height=550)
+
+with col_side:
+    st.subheader("📰 Market Intelligence")
+    st.caption("AI Scanning Global Feeds...")
+    
+    # Fake Real-time news logic
+    news_items = [
+        {"title": "BTC ETF Inflow: +$450M", "type": "success"},
+        {"title": "CPI Data: Above Expected", "type": "error"},
+        {"title": "Whale Alert: 2k BTC Move", "type": "warning"},
+        {"title": "Delta Volume Spike: 10x", "type": "info"}
+    ]
+    for item in news_items:
+        if item['type'] == 'success': st.success(item['title'])
+        elif item['type'] == 'error': st.error(item['title'])
+        elif item['type'] == 'warning': st.warning(item['title'])
+        else: st.info(item['title'])
+        
+    st.divider()
+    st.subheader("📊 Order Book")
+    # Quick fake order book visualization
+    st.caption("Price (USDT) | Amount (BTC)")
+    st.code(f"🔴 {price+10:.1f} | 1.42\n🔴 {price+5:.1f} | 0.88\n🟢 {price-5:.1f} | 2.15\n🟢 {price-10:.1f} | 0.95")
+
+# --- AI AUTO-TRADING ENGINE ---
+if st.session_state.last_price != 0:
+    diff = ((price - st.session_state.last_price) / st.session_state.last_price) * 100
+    
+    if abs(diff) > 0.01: # AI reacts to small price changes
+        pnl = (st.session_state.balance * (margin_use/100)) * (diff * lev)
+        st.session_state.balance += pnl
+        
+        st.session_state.trades.insert(0, {
+            "Time": datetime.now().strftime("%H:%M:%S"),
+            "Symbol": "BTC/USDT",
+            "Leverage": f"{lev}x",
+            "Profit/Loss ($)": round(pnl, 2),
+            "New Balance": round(st.session_state.balance, 2)
+        })
+
+st.session_state.last_price = price
+
+# --- TRADE HISTORY ---
+st.divider()
+st.subheader("📂 Professional Portfolio History")
+if st.session_state.trades:
+    hist_df = pd.DataFrame(st.session_state.trades)
+    st.dataframe(hist_df.style.highlight_max(axis=0, subset=['Profit/Loss ($)'], color='#004d00')
+                 .highlight_min(axis=0, subset=['Profit/Loss ($)'], color='#4d0000'), use_container_width=True)
+
+# Auto-Refresh logic
+time.sleep(1)
+st.rerun()
         st.session_state.trades = []
 
 # --- LIVE DATA FETCHING ---
