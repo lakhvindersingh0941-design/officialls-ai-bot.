@@ -4,10 +4,11 @@ import time
 import hmac
 import hashlib
 import json
+import pandas as pd
 
 st.set_page_config(page_title="SAFE PRO AI", layout="wide")
 
-# ---------------- STYLE ----------------
+# ---------- STYLE ----------
 st.markdown("""
 <style>
 .main { background-color:#0b0e11; color:#fff; }
@@ -15,11 +16,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- SESSION ----------------
+# ---------- SESSION ----------
 if "bal" not in st.session_state:
     st.session_state.bal = 100.0
 
-# ---------------- SIDEBAR ----------------
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+if "last_trade_time" not in st.session_state:
+    st.session_state.last_trade_time = 0
+
+# ---------- SIDEBAR ----------
 with st.sidebar:
     st.title("SAFE PRO AI")
 
@@ -32,7 +39,9 @@ with st.sidebar:
     leverage = st.slider("Leverage", 1, 200, 20)
     capital_percent = st.slider("Capital %", 10, 100, 100)
 
-# ---------------- HEADER ----------------
+    auto_ai = st.toggle("🤖 AUTO AI TRADING", value=False)
+
+# ---------- HEADER ----------
 st.title(f"📊 Terminal: {asset}")
 
 c1, c2, c3 = st.columns(3)
@@ -40,7 +49,7 @@ price_box = c1.empty()
 bal_box = c2.empty()
 status_box = c3.empty()
 
-# ---------------- CHART ----------------
+# ---------- CHART ----------
 st.components.v1.html(f"""
 <div id="tv_chart"></div>
 <script src="https://s3.tradingview.com/tv.js"></script>
@@ -56,7 +65,7 @@ new TradingView.widget({{
 </script>
 """, height=520)
 
-# ---------------- PRICE ----------------
+# ---------- PRICE ----------
 try:
     r = requests.get(f"https://api.india.delta.exchange/v2/tickers/{asset}").json()
     price = float(r.get("result", {}).get("last_price", 0))
@@ -65,130 +74,131 @@ except:
 
 price_box.metric("Price", f"${price}")
 
-# ---------------- CORRECT SIGN FUNCTION ----------------
-def generate_signature(method, path, payload, api_secret):
-    timestamp = str(int(time.time()))  # ✅ seconds
-    message = method + timestamp + path + payload
-    signature = hmac.new(
-        api_secret.encode(),
-        message.encode(),
-        hashlib.sha256
-    ).hexdigest()
-    return signature, timestamp
+# ---------- SIGN ----------
+def sign(method, path, payload, secret):
+    ts = str(int(time.time()))
+    msg = method + ts + path + payload
+    sig = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return sig, ts
 
-# ---------------- REAL ACCOUNT ----------------
+# ---------- BALANCE ----------
 if mode == "Demo":
     balance = st.session_state.bal
-    status_box.success("Demo Mode ✅")
-
+    status_box.success("Demo")
 else:
     try:
         path = "/v2/wallet/balances"
-        payload = ""
-
-        signature, timestamp = generate_signature("GET", path, payload, api_secret)
+        sig, ts = sign("GET", path, "", api_secret)
 
         headers = {
             "api-key": api_key,
-            "signature": signature,
-            "timestamp": timestamp,
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0"
+            "signature": sig,
+            "timestamp": ts
         }
 
-        url = "https://api.india.delta.exchange" + path
-        res = requests.get(url, headers=headers).json()
+        res = requests.get("https://api.india.delta.exchange"+path, headers=headers).json()
 
-        # ✅ SAFE PARSE
         balance = 0
-        for item in res.get("result", []):
-            if item["asset_symbol"] == "USDT":
-                balance = float(item["balance"])
+        for i in res.get("result", []):
+            if i["asset_symbol"] == "USDT":
+                balance = float(i["balance"])
 
-        status_box.success("Connected ✅")
-
-    except Exception as e:
+        status_box.success("Connected")
+    except:
         balance = 0
-        status_box.error("API Error ❌")
-        st.write("Error:", e)
+        status_box.error("Error")
 
 bal_box.metric("Balance", f"${balance}")
 
-# ---------------- NEWS ----------------
-st.subheader("📰 Crypto News")
-
-try:
-    news = requests.get("https://min-api.cryptocompare.com/data/v2/news/?lang=EN").json()
-    for n in news["Data"][:3]:
-        st.markdown(f"**{n['title']}**")
-        st.write(n["body"][:100])
-        st.write("---")
-except:
-    st.warning("News failed")
-
-# ---------------- LOT SIZE FIX ----------------
-def get_lot_size(symbol):
+# ---------- INDICATOR (AI LOGIC) ----------
+def get_signal():
     try:
-        r = requests.get("https://api.india.delta.exchange/v2/products").json()
-        for p in r["result"]:
-            if p["symbol"] == symbol:
-                return float(p["contract_value"])
+        url = f"https://api.india.delta.exchange/v2/candles/{asset}?resolution=1m"
+        data = requests.get(url).json()["result"]
+
+        closes = [float(c["close"]) for c in data][-20:]
+
+        ema_short = sum(closes[-5:]) / 5
+        ema_long = sum(closes) / 20
+
+        momentum = closes[-1] - closes[-3]
+
+        if ema_short > ema_long and momentum > 0:
+            return "BUY"
+        elif ema_short < ema_long and momentum < 0:
+            return "SELL"
+        else:
+            return "HOLD"
     except:
-        return 1
+        return "HOLD"
 
-lot_size = get_lot_size(asset)
-
-# ---------------- TRADE SIZE ----------------
+# ---------- LOT ----------
 trade_capital = (balance * capital_percent) / 100
-
-# ✅ Correct lot calculation
-qty = int((trade_capital * leverage) / (price * lot_size)) if price != 0 else 0
+qty = int((trade_capital * leverage) / price) if price != 0 else 0
 qty = max(qty, 1)
 
-st.write(f"Lot Size: {qty}")
-
-# ---------------- ORDER FUNCTION ----------------
+# ---------- ORDER ----------
 def place_order(side):
     path = "/v2/orders"
 
-    payload_dict = {
-        "product_id": 27,  # BTC example (dynamic bhi kar sakte)
+    payload = json.dumps({
+        "product_id": 27,
         "size": qty,
-        "side": side,
+        "side": side.lower(),
         "order_type": "market_order"
-    }
+    })
 
-    payload = json.dumps(payload_dict)
-
-    signature, timestamp = generate_signature("POST", path, payload, api_secret)
+    sig, ts = sign("POST", path, payload, api_secret)
 
     headers = {
         "api-key": api_key,
-        "signature": signature,
-        "timestamp": timestamp,
+        "signature": sig,
+        "timestamp": ts,
         "Content-Type": "application/json"
     }
 
-    url = "https://api.india.delta.exchange" + path
-    return requests.post(url, headers=headers, data=payload).json()
+    return requests.post("https://api.india.delta.exchange"+path, headers=headers, data=payload).json()
 
-# ---------------- MANUAL TRADE ----------------
-col1, col2 = st.columns(2)
+# ---------- AUTO AI ----------
+if auto_ai and price != 0:
+    signal = get_signal()
 
-if col1.button("BUY"):
-    if mode == "Real":
-        res = place_order("buy")
-        st.success(res)
-    else:
-        st.success(f"Demo BUY | Lot {qty}")
+    cooldown = time.time() - st.session_state.last_trade_time > 10
 
-if col2.button("SELL"):
-    if mode == "Real":
-        res = place_order("sell")
-        st.success(res)
-    else:
-        st.success(f"Demo SELL | Lot {qty}")
+    if signal in ["BUY", "SELL"] and cooldown:
 
-# ---------------- REFRESH ----------------
+        entry = price
+
+        # SL TP
+        sl = entry * 0.995 if signal == "BUY" else entry * 1.005
+        tp = entry * 1.01 if signal == "BUY" else entry * 0.99
+
+        if mode == "Real":
+            res = place_order(signal)
+            status = "REAL"
+        else:
+            status = "DEMO"
+
+        # SAVE HISTORY
+        st.session_state.history.insert(0, {
+            "Time": time.strftime("%H:%M:%S"),
+            "Signal": signal,
+            "Entry": round(entry,2),
+            "SL": round(sl,2),
+            "TP": round(tp,2),
+            "Qty": qty,
+            "Mode": status
+        })
+
+        st.session_state.last_trade_time = time.time()
+
+# ---------- HISTORY ----------
+st.subheader("📜 Trade History")
+
+if st.session_state.history:
+    df = pd.DataFrame(st.session_state.history)
+    st.dataframe(df, use_container_width=True)
+
+# ---------- REFRESH ----------
 time.sleep(3)
 st.rerun()
