@@ -7,8 +7,8 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# 1. Page & Professional UI Styling
-st.set_page_config(page_title="OfficialLS Ultimate AI Terminal", layout="wide")
+# 1. Page Configuration & UI Styling
+st.set_page_config(page_title="OfficialLS Delta India Pro Terminal", layout="wide")
 
 st.markdown("""
     <style>
@@ -23,7 +23,7 @@ if 'history' not in st.session_state: st.session_state.history = []
 if 'last_p' not in st.session_state: st.session_state.last_p = 0
 if 'real_bal' not in st.session_state: st.session_state.real_bal = 0.0
 
-# 2. SIDEBAR (Full Control)
+# 2. SIDEBAR
 with st.sidebar:
     st.title("OfficialLS AI Bot")
     st.error("🔴 Whitelist IP: 74.220.48.23")
@@ -31,21 +31,21 @@ with st.sidebar:
     acc_mode = st.radio("Account Mode", ["Demo Simulation", "Real Delta India"])
     asset_choice = st.selectbox("Select Asset", ["BTCUSD", "ETHUSD"])
     
-    api_k = st.text_input("API Key", type="password", key="final_k")
-    api_s = st.text_input("API Secret", type="password", key="final_s")
+    api_k = st.text_input("API Key", type="password")
+    api_s = st.text_input("API Secret", type="password")
     
     st.divider()
     auto_trade = st.toggle(f"🚀 AUTO REAL TRADE ON", value=False)
-    lev = st.select_slider("Leverage Setting", [10, 25, 50, 100, 150, 200], 200)
+    lev = st.select_slider("Leverage Setting", [10, 50, 100, 200], 200)
     
     if st.button("Full System Reset"):
         st.session_state.clear()
         st.rerun()
 
 # 3. Direct Delta India API Functions
-def get_delta_headers(method, path, query, payload, api_key, api_secret):
+def get_delta_headers(method, path, payload, api_key, api_secret):
     timestamp = str(int(time.time()))
-    msg = method + timestamp + path + query + payload
+    msg = method + timestamp + path + "" + payload
     signature = hmac.new(api_secret.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
     return {
         "api-key": api_key,
@@ -54,30 +54,32 @@ def get_delta_headers(method, path, query, payload, api_key, api_secret):
         "Content-Type": "application/json"
     }
 
-def fetch_real_bal(api_key, api_secret):
-    path = "/v2/wallet/balances"
+def sync_account_data(api_key, api_secret):
     try:
-        headers = get_delta_headers("GET", path, "", "", api_key, api_secret)
-        r = requests.get("https://api.india.delta.exchange" + path, headers=headers, timeout=5)
-        res_data = r.json()
-        found_bal = 0.0
-        if "result" in res_data:
-            for item in res_data["result"]:
-                sym = item.get("asset_symbol", "")
-                total_bal = float(item.get("balance", 0.0))
-                if sym == "USDT": return total_bal
-                elif sym == "INR": return total_bal / 88.5
-        return found_bal
-    except: return 0.0
+        # Fetch Balance
+        h_bal = get_delta_headers("GET", "/v2/wallet/balances", "", api_key, api_secret)
+        r_bal = requests.get("https://api.india.delta.exchange/v2/wallet/balances", headers=h_bal, timeout=5).json()
+        
+        bal = 0.0
+        for item in r_bal.get('result', []):
+            if item['asset_symbol'] == 'USDT': bal = float(item['balance'])
+            elif item['asset_symbol'] == 'INR': bal = float(item['balance']) / 89.0
+        
+        # Get Product ID dynamically
+        r_prod = requests.get("https://api.india.delta.exchange/v2/products").json()
+        p_id = next(p['id'] for p in r_prod['result'] if p['symbol'] == asset_choice)
+        
+        return bal, p_id
+    except:
+        return 0.0, (1 if "BTC" in asset_choice else 3)
 
-# 4. DASHBOARD INTERFACE
+# 4. MAIN INTERFACE
 st.title(f"📊 OfficialLS AI Professional Terminal: {asset_choice}")
 
-# Metrics Row
 m1, m2, m3, m4 = st.columns(4)
 p_price = m1.empty()
 p_wallet = m2.empty()
-m3.metric("Auto Trade Status", "ACTIVE" if auto_trade else "PAUSED")
+m3.metric("Trade Status", "ACTIVE" if auto_trade else "PAUSED")
 m4.metric("Leverage", f"{lev}x")
 
 st.divider()
@@ -85,73 +87,68 @@ st.divider()
 col_sig, col_main = st.columns([1, 3.2])
 
 with col_sig:
-    st.subheader("📰 AI Signals & News")
+    st.subheader("📰 AI News & Signals")
     st.success(f"Signal: {asset_choice[:3]} BULLISH")
     st.info("Market Volume: High")
     st.divider()
     st.subheader("📊 Trade Protection")
-    st.write(f"Stop Loss: 0.8%")
-    st.write(f"Take Profit: 1.5%")
-    st.write(f"Min Size: 1 Lot")
+    st.write("SL: 0.8% | TP: 1.5%")
+    st.write("Lot Size: 1 (Min)")
     st.divider()
     p_depth = st.empty()
 
 with col_main:
     # Delta India Native Chart
-    delta_chart_url = f"https://india.delta.exchange/app/trading/{asset_choice}"
     st.components.v1.html(f"""
-        <iframe src="{delta_chart_url}" width="100%" height="520px" style="border:1px solid #333; border-radius:10px;"></iframe>
+        <iframe src="https://india.delta.exchange/app/trading/{asset_choice}" width="100%" height="520px" style="border:1px solid #333; border-radius:10px;"></iframe>
     """, height=520)
     
     st.subheader("📜 AI Execution Logs (IST Time + SL/TP)")
     p_hist = st.empty()
 
-# 5. EXECUTION & SYNC LOOP
+# 5. DATA SYNC & EXECUTION LOOP
 while True:
     try:
         # Price Fetch
-        price_r = requests.get(f"https://api.india.delta.exchange/v2/tickers/{asset_choice}").json()
-        price = float(price_r['result']['last_price'])
+        price_data = requests.get(f"https://api.india.delta.exchange/v2/tickers/{asset_choice}").json()
+        price = float(price_data['result']['last_price'])
         
-        # Balance Sync
-        if acc_mode == "Real Delta India" and api_k and api_s:
-            st.session_state.real_bal = fetch_real_bal(api_k, api_s)
+        if api_k and api_s and acc_mode == "Real Delta India":
+            st.session_state.real_bal, current_p_id = sync_account_data(api_k, api_s)
+            
+            # TRADE EXECUTION
+            if auto_trade and st.session_state.last_p != 0 and abs(price - st.session_state.last_p) > 1.2:
+                side = 'buy' if price > st.session_state.last_p else 'sell'
+                ist = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%H:%M:%S")
+                
+                # SL/TP Targets
+                sl_target = price * 0.992 if side == 'buy' else price * 1.008
+                tp_target = price * 1.015 if side == 'buy' else price * 0.985
+                
+                # A. Set Leverage on Exchange
+                lev_payload = json.dumps({"product_id": int(current_p_id), "leverage": str(lev)})
+                requests.post("https://api.india.delta.exchange/v2/products/leverage", 
+                              headers=get_delta_headers("POST", "/v2/products/leverage", lev_payload, api_k, api_s), data=lev_payload)
+                
+                # B. Place Order
+                order_payload = json.dumps({"product_id": int(current_p_id), "size": 1, "side": side, "order_type": "market_order"})
+                res = requests.post("https://api.india.delta.exchange/v2/orders", 
+                                    headers=get_delta_headers("POST", "/v2/orders", order_payload, api_k, api_s), data=order_payload)
+                
+                status = "REAL SUCCESS" if res.status_code == 200 else f"Fail: {res.json().get('error',{}).get('message','Err')[:10]}"
+                
+                st.session_state.history.insert(0, {
+                    "Time": ist, "Asset": asset_choice, "Side": side.upper(), 
+                    "Entry": price, "SL": round(sl_target, 1), "TP": round(tp_target, 1), "Status": status
+                })
         else:
             if st.session_state.real_bal == 0: st.session_state.real_bal = 10.0
 
-        # AUTO TRADING LOGIC
-        if auto_trade and st.session_state.last_p != 0 and abs(price - st.session_state.last_p) > 1.2:
-            side = 'buy' if price > st.session_state.last_p else 'sell'
-            ist = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%H:%M:%S")
-            
-            # SL/TP Calculation
-            sl_val = price * 0.992 if side == 'buy' else price * 1.008
-            tp_val = price * 1.015 if side == 'buy' else price * 0.985
-            
-            log_status = "Demo Trade"
-            if acc_mode == "Real Delta India" and api_k and api_s:
-                p_id = 1 if "BTC" in asset_choice else 3 
-                # 1. Set Leverage
-                path_lev = "/v2/products/leverage"
-                lev_payload = json.dumps({"product_id": p_id, "leverage": str(lev)})
-                requests.post("https://api.india.delta.exchange" + path_lev, headers=get_delta_headers("POST", path_lev, "", lev_payload, api_k, api_s), data=lev_payload)
-                
-                # 2. Place Order
-                path_order = "/v2/orders"
-                order_payload = json.dumps({"product_id": p_id, "size": 1, "side": side, "order_type": "market_order"})
-                res = requests.post("https://api.india.delta.exchange" + path_order, headers=get_delta_headers("POST", path_order, "", order_payload, api_k, api_s), data=order_payload)
-                log_status = "REAL SUCCESS" if res.status_code == 200 else f"Fail: {res.json().get('error', {}).get('message', 'Err')[:10]}"
-
-            st.session_state.history.insert(0, {
-                "Time": ist, "Asset": asset_choice[:3], "Side": side.upper(),
-                "Price": price, "SL": round(sl_val, 1), "TP": round(tp_val, 1),
-                "Status": log_status, "Wallet": round(st.session_state.real_bal, 3)
-            })
-
+        # Update UI
+        p_price.metric(f"Live {asset_choice}", f"${price:,.2f}")
+        p_wallet.metric("Balance (USDT Equiv.)", f"${st.session_state.real_bal:,.3f}")
+        p_depth.code(f"🔴 Ask: {price+1.2}\n🟢 Bid: {price-0.4}", language="text")
         st.session_state.last_p = price
-        p_price.metric(f"Live {asset_choice[:3]}", f"${price:,.2f}")
-        p_wallet.metric("Account Balance", f"${st.session_state.real_bal:,.3f}")
-        p_depth.code(f"🔴 Ask: {price+1.5}\n🟢 Bid: {price-0.5}", language="text")
         
         with p_hist:
             if st.session_state.history:
