@@ -7,7 +7,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 
-# 1. Page Configuration & Punjabi Leader Branding
+# 1. Page Configuration
 st.set_page_config(page_title="OfficialLS Safe Pro AI", layout="wide")
 
 st.markdown("""
@@ -18,7 +18,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Session States (Safety & Tracking Hooks)
+# Session States
 if 'history' not in st.session_state: st.session_state.history = []
 if 'last_p' not in st.session_state: st.session_state.last_p = 0
 if 'last_trade_p' not in st.session_state: st.session_state.last_trade_p = 0
@@ -49,14 +49,14 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# 3. Secure API Logic (Correct Order & MS)
+# 3. API Headers
 def get_headers(method, path, payload, api_key, api_secret):
     timestamp = str(int(time.time() * 1000))
     msg = method + path + timestamp + payload
     signature = hmac.new(api_secret.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
     return {"api-key": api_key, "signature": signature, "timestamp": timestamp, "Content-Type": "application/json"}
 
-# 4. DASHBOARD UI
+# 4. UI
 st.title(f"📊 Safe Pro Terminal: {asset_choice}")
 m1, m2, m3, m4 = st.columns(4)
 p_price = m1.empty()
@@ -79,85 +79,103 @@ with col_sig:
     p_depth = st.empty()
 
 with col_main:
-    # Delta India Native Chart
-    st.components.v1.html(f'<iframe src="https://india.delta.exchange/app/trading/{asset_choice}" width="100%" height="520px" style="border:1px solid #333; border-radius:10px;"></iframe>', height=520)
+    # ✅ FIXED CHART (TradingView)
+    symbol_map = {
+        "BTCUSD": "BINANCE:BTCUSDT",
+        "ETHUSD": "BINANCE:ETHUSDT"
+    }
+    tv_symbol = symbol_map.get(asset_choice, "BINANCE:BTCUSDT")
+
+    st.components.v1.html(f"""
+    <div id="tradingview_chart"></div>
+    <script src="https://s3.tradingview.com/tv.js"></script>
+    <script>
+    new TradingView.widget({{
+      "width": "100%",
+      "height": 520,
+      "symbol": "{tv_symbol}",
+      "interval": "1",
+      "timezone": "Asia/Kolkata",
+      "theme": "dark",
+      "style": "1",
+      "container_id": "tradingview_chart"
+    }});
+    </script>
+    """, height=520)
+
     p_hist = st.empty()
 
-# 5. DATA SYNC & PRECISION EXECUTION
+# 5. LOGIC
 try:
-    # A. Fetch Price
     t_resp = requests.get(f"https://api.india.delta.exchange/v2/tickers/{asset_choice}").json()
     price = float(t_resp['result']['last_price'])
     p_price.metric("Live Price", f"${price:,.2f}")
-    p_depth.code(f"🔴 Ask: {price+1.5}\n🟢 Bid: {price-0.5}", language="text")
+    p_depth.code(f"Ask: {price+1.5}\nBid: {price-0.5}")
 
-    # Initialize last_trade_p
     if st.session_state.last_trade_p == 0:
         st.session_state.last_trade_p = price
 
     if acc_mode == "Real Delta India" and api_k and api_s:
-        # B. Sync Wallet (INR/USDT Aggressive)
         h_bal = get_headers("GET", "/v2/wallet/balances", "", api_k, api_s)
         r_bal = requests.get("https://api.india.delta.exchange/v2/wallet/balances", headers=h_bal).json()
-        for item in r_bal.get('result', []):
-            if item['asset_symbol'] == 'USDT': st.session_state.real_bal = float(item['balance'])
-            elif item['asset_symbol'] == 'INR': st.session_state.real_bal = float(item['balance']) / 89.0
         
-        # C. Check Positions (Filtered)
+        for item in r_bal.get('result', []):
+            if item['asset_symbol'] == 'USDT':
+                st.session_state.real_bal = float(item['balance'])
+
         h_pos = get_headers("GET", "/v2/positions", "", api_k, api_s)
         r_pos = requests.get("https://api.india.delta.exchange/v2/positions", headers=h_pos).json()
-        active_pos = [p for p in r_pos.get('result', []) if float(p.get('size', 0)) != 0 and asset_choice in p.get('product_symbol', '')]
+        active_pos = [p for p in r_pos.get('result', []) if float(p.get('size', 0)) != 0]
         p_pos_count.metric("Active Positions", len(active_pos))
 
-        # D. PRECISION COMPOUNDING LOGIC
         p_diff = abs(price - st.session_state.last_trade_p)
-        cooldown_ok = (time.time() - st.session_state.last_trade_time) > 15 
+        cooldown_ok = (time.time() - st.session_state.last_trade_time) > 15
 
         if auto_trade and len(active_pos) == 0 and p_diff >= target_pts and cooldown_ok:
             side = 'buy' if price > st.session_state.last_trade_p else 'sell'
             
             r_prod = requests.get("https://api.india.delta.exchange/v2/products").json()
-            p_id = next((p['id'] for p in r_prod.get('result', []) if p.get('symbol') == asset_choice), None)
-            
+            p_id = next((p['id'] for p in r_prod.get('result', []) if asset_choice in p['symbol']), None)
+
             if p_id:
-                # 1. Set Leverage
-                l_pay = json.dumps({"product_id": int(p_id), "leverage": str(lev)})
-                requests.post("https://api.india.delta.exchange/v2/products/leverage", headers=get_headers("POST", "/v2/products/leverage", l_pay, api_k, api_s), data=l_pay)
-                
-                # 2. REAL COMPOUNDING SIZE
                 comp_size = max(1, int((st.session_state.real_bal * lev) / price))
-                
-                o_pay = json.dumps({"product_id": int(p_id), "size": comp_size, "side": side, "order_type": "market_order"})
-                res = requests.post("https://api.india.delta.exchange/v2/orders", headers=get_headers("POST", "/v2/orders", o_pay, api_k, api_s), data=o_pay)
-                
-                if res.status_code == 200:
-                    st.session_state.series_step += 1
-                    st.session_state.last_trade_p = price
-                    st.session_state.last_trade_time = time.time()
-                    status = f"SUCCESS (Lot: {comp_size})"
-                else:
-                    status = f"Fail: {res.json().get('error', {}).get('message', 'Err')[:15]}"
-                
-                st.session_state.history.insert(0, {
-                    "Time": datetime.now().strftime("%H:%M:%S"),
-                    "Side": side.upper(), "Price": price, "Status": status, "Step": f"{st.session_state.series_step}/12"
+
+                o_pay = json.dumps({
+                    "product_id": int(p_id),
+                    "size": comp_size,
+                    "side": side,
+                    "order_type": "market_order"
                 })
 
-    p_wallet.metric("Wallet (USDT)", f"${st.session_state.real_bal:,.3f}")
-    p_series.metric("Series Progress", f"{st.session_state.series_step}/12")
-    st.session_state.last_p = price
-    
-    with p_hist:
-        if st.session_state.history: st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
+                res = requests.post(
+                    "https://api.india.delta.exchange/v2/orders",
+                    headers=get_headers("POST", "/v2/orders", o_pay, api_k, api_s),
+                    data=o_pay
+                )
 
-    if debug_on:
-        with st.expander("Debug Logs"):
-            st.write("Price Sync:", t_resp)
-            if 'res' in locals(): st.write("Order Resp:", res.json())
+                status = "SUCCESS" if res.status_code == 200 else "FAILED"
+
+                st.session_state.history.insert(0, {
+                    "Time": datetime.now().strftime("%H:%M:%S"),
+                    "Side": side.upper(),
+                    "Price": price,
+                    "Status": status
+                })
+
+                st.session_state.last_trade_p = price
+                st.session_state.last_trade_time = time.time()
+                st.session_state.series_step += 1
+
+    p_wallet.metric("Wallet", f"${st.session_state.real_bal:,.2f}")
+    p_series.metric("Series", f"{st.session_state.series_step}/12")
+    st.session_state.last_p = price
+
+    if st.session_state.history:
+        st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
 
 except Exception as e:
-    if debug_on: st.error(f"System: {e}")
+    if debug_on:
+        st.error(e)
 
 time.sleep(2)
 st.rerun()
-        
