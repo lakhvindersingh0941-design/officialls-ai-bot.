@@ -105,10 +105,12 @@ else:
         if debug:
             st.write("API Response:", res)
 
+        # ✅ FIXED PART (USD + USDT)
         for i in res.get("result", []):
-            if i.get("asset_symbol") == "USDT":
+            if i.get("asset_symbol") in ["USD", "USDT"]:
                 balance = float(i.get("balance", 0))
                 connected = True
+                break
 
     except Exception as e:
         if debug:
@@ -122,7 +124,7 @@ if connected:
 else:
     col1.error("❌ Not Connected")
 
-col2.metric("Balance", f"${balance}")
+col2.metric("Balance", f"${balance:.4f}")
 
 # ---------- SIGNAL ----------
 def get_signal():
@@ -146,10 +148,15 @@ def get_signal():
     except:
         return "HOLD"
 
-# ---------- LOT ----------
+# ---------- LOT SIZE ----------
 trade_capital = (balance * capital_percent) / 100
-qty = int((trade_capital * leverage) / price) if price != 0 else 0
-qty = max(qty, 1)
+
+if price > 0:
+    qty = (trade_capital * leverage) / price
+    qty = round(qty, 3)
+    qty = max(qty, 1)  # minimum 1
+else:
+    qty = 1
 
 # ---------- ORDER ----------
 def place_order(side):
