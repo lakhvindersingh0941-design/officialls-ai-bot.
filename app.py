@@ -6,7 +6,7 @@ import hashlib
 import json
 import pandas as pd
 
-st.set_page_config(page_title="SAFE PRO AI", layout="wide")
+st.set_page_config(page_title="SAFE PRO AI FINAL", layout="wide")
 
 # ---------- SESSION ----------
 if "bal" not in st.session_state:
@@ -18,7 +18,7 @@ if "last_trade_time" not in st.session_state:
 
 # ---------- SIDEBAR ----------
 with st.sidebar:
-    st.title("SAFE PRO AI")
+    st.title("SAFE PRO AI FINAL")
 
     mode = st.radio("Mode", ["Demo", "Real"])
     asset = st.selectbox("Asset", ["BTCUSD", "ETHUSD"])
@@ -29,14 +29,13 @@ with st.sidebar:
     leverage = st.slider("Leverage", 1, 200, 50)
     capital_percent = st.slider("Capital %", 10, 100, 100)
 
-    auto_ai = st.toggle("🤖 AUTO AI FAST SCALPING", value=False)
+    auto_ai = st.toggle("🤖 AUTO AI TRADING", value=False)
+    debug = st.checkbox("Show Debug")
 
 # ---------- HEADER ----------
 st.title(f"📊 Terminal: {asset}")
 
-# ---------- TRADINGVIEW CHART ----------
-st.subheader("📈 Live Chart")
-
+# ---------- CHART ----------
 symbol_tv = "DELTAIN:BTCUSD.P" if asset == "BTCUSD" else "DELTAIN:ETHUSD.P"
 
 st.components.v1.html(f"""
@@ -49,7 +48,6 @@ new TradingView.widget({{
   "height": 500,
   "symbol": "{symbol_tv}",
   "interval": "1",
-  "timezone": "Asia/Kolkata",
   "theme": "dark"
 }});
 </script>
@@ -83,9 +81,13 @@ def get_product_id(symbol):
 
 product_id = get_product_id(asset)
 
-# ---------- BALANCE ----------
+# ---------- BALANCE + CONNECTION ----------
+connected = False
+balance = 0
+
 if mode == "Demo":
     balance = st.session_state.bal
+    connected = True
 else:
     try:
         path = "/v2/wallet/balances"
@@ -94,55 +96,53 @@ else:
         headers = {
             "api-key": api_key,
             "signature": sig,
-            "timestamp": ts
+            "timestamp": ts,
+            "Content-Type": "application/json"
         }
 
         res = requests.get("https://api.india.delta.exchange"+path, headers=headers).json()
 
-        balance = 0
+        if debug:
+            st.write("API Response:", res)
+
         for i in res.get("result", []):
-            if i["asset_symbol"] == "USDT":
-                balance = float(i["balance"])
-    except:
-        balance = 0
+            if i.get("asset_symbol") == "USDT":
+                balance = float(i.get("balance", 0))
+                connected = True
 
-st.metric("Balance", f"${balance}")
+    except Exception as e:
+        if debug:
+            st.error(e)
 
-# ---------- ADVANCED SIGNAL ----------
+# ---------- STATUS ----------
+col1, col2 = st.columns(2)
+
+if connected:
+    col1.success("✅ Connected")
+else:
+    col1.error("❌ Not Connected")
+
+col2.metric("Balance", f"${balance}")
+
+# ---------- SIGNAL ----------
 def get_signal():
     try:
         r = requests.get(f"https://api.india.delta.exchange/v2/candles?symbol={asset}&resolution=1m").json()
         data = r["result"]
 
-        closes = [float(c["close"]) for c in data][-50:]
+        closes = [float(c["close"]) for c in data][-30:]
 
-        ema9 = sum(closes[-9:]) / 9
-        ema21 = sum(closes[-21:]) / 21
+        ema5 = sum(closes[-5:]) / 5
+        ema20 = sum(closes[-20:]) / 20
 
-        momentum = closes[-1] - closes[-4]
+        momentum = closes[-1] - closes[-3]
 
-        # RSI
-        gains = []
-        losses = []
-        for i in range(1, 15):
-            diff = closes[-i] - closes[-i-1]
-            if diff > 0:
-                gains.append(diff)
-            else:
-                losses.append(abs(diff))
-
-        avg_gain = sum(gains)/14 if gains else 0.1
-        avg_loss = sum(losses)/14 if losses else 0.1
-        rs = avg_gain / avg_loss if avg_loss != 0 else 1
-        rsi = 100 - (100 / (1 + rs))
-
-        if ema9 > ema21 and rsi > 55 and momentum > 0:
+        if ema5 > ema20 and momentum > 0:
             return "BUY"
-        elif ema9 < ema21 and rsi < 45 and momentum < 0:
+        elif ema5 < ema20 and momentum < 0:
             return "SELL"
         else:
             return "HOLD"
-
     except:
         return "HOLD"
 
@@ -174,39 +174,34 @@ def place_order(side):
     return requests.post("https://api.india.delta.exchange"+path, headers=headers, data=payload).json()
 
 # ---------- AUTO AI ----------
-if auto_ai and price != 0 and product_id:
+if auto_ai and connected and price != 0 and product_id:
 
     signal = get_signal()
-    cooldown = time.time() - st.session_state.last_trade_time > 3
+
+    cooldown = time.time() - st.session_state.last_trade_time > 5
 
     if signal in ["BUY", "SELL"] and cooldown:
 
-        entry = price
-
-        # SL / TP
-        sl = entry * 0.996 if signal == "BUY" else entry * 1.004
-        tp = entry * 1.006 if signal == "BUY" else entry * 0.994
-
         if mode == "Real":
             res = place_order(signal)
-            status = "REAL"
+            status = res
         else:
             status = "DEMO"
 
         st.session_state.history.insert(0, {
             "Time": time.strftime("%H:%M:%S"),
-            "Side": signal,
-            "Entry": round(entry,2),
-            "SL": round(sl,2),
-            "TP": round(tp,2),
+            "Signal": signal,
+            "Price": round(price,2),
             "Qty": qty,
-            "Mode": status
+            "Mode": mode,
+            "Status": str(status)[:50]
         })
 
         st.session_state.last_trade_time = time.time()
 
 # ---------- HISTORY ----------
 st.subheader("📜 Trade History")
+
 if st.session_state.history:
     st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
 
