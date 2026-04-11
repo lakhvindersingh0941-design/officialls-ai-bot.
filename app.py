@@ -81,7 +81,7 @@ def get_product_id(symbol):
 
 product_id = get_product_id(asset)
 
-# ---------- BALANCE + CONNECTION ----------
+# ---------- BALANCE ----------
 connected = False
 balance = 0
 
@@ -103,18 +103,16 @@ else:
         res = requests.get("https://api.india.delta.exchange"+path, headers=headers).json()
 
         if debug:
-            st.write("API Response:", res)
+            st.write(res)
 
-        # ✅ FIX (USD + USDT)
         for i in res.get("result", []):
             if i.get("asset_symbol") in ["USD", "USDT"]:
                 balance = float(i.get("balance", 0))
                 connected = True
                 break
 
-    except Exception as e:
-        if debug:
-            st.error(e)
+    except:
+        pass
 
 # ---------- STATUS ----------
 col1, col2 = st.columns(2)
@@ -126,7 +124,7 @@ else:
 
 col2.metric("Balance", f"${balance:.4f}")
 
-# ---------- ADVANCED SIGNAL ----------
+# ---------- SIGNAL ----------
 def get_signal():
     try:
         r = requests.get(f"https://api.india.delta.exchange/v2/candles?symbol={asset}&resolution=1m").json()
@@ -139,7 +137,7 @@ def get_signal():
         ema5 = sum(closes[-5:]) / 5
         ema20 = sum(closes[-20:]) / 20
 
-        # RSI
+        # RSI (RELAXED)
         gains = []
         losses = []
 
@@ -156,9 +154,9 @@ def get_signal():
         rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
 
-        # Volume
+        # Volume relaxed
         avg_vol = sum(volumes[-10:]) / 10
-        volume_spike = volumes[-1] > avg_vol * 1.5
+        volume_spike = volumes[-1] > avg_vol * 1.2
 
         # Candle
         last_open = float(data[-1]["open"])
@@ -167,10 +165,10 @@ def get_signal():
         bullish = last_close > last_open
         bearish = last_close < last_open
 
-        # Signal
-        if ema5 > ema20 and rsi > 55 and volume_spike and bullish:
+        # FINAL SIGNAL (RELAXED)
+        if ema5 > ema20 and rsi > 50 and bullish:
             return "BUY"
-        elif ema5 < ema20 and rsi < 45 and volume_spike and bearish:
+        elif ema5 < ema20 and rsi < 50 and bearish:
             return "SELL"
         else:
             return "HOLD"
@@ -215,8 +213,7 @@ if auto_ai and connected and price != 0 and product_id:
 
     signal = get_signal()
 
-    # ✅ FAST SCALPING COOLDOWN
-    cooldown = time.time() - st.session_state.last_trade_time > 2
+    cooldown = time.time() - st.session_state.last_trade_time > 1
 
     if signal in ["BUY", "SELL"] and cooldown:
 
@@ -243,6 +240,14 @@ st.subheader("📜 Trade History")
 if st.session_state.history:
     st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
 
-# ---------- REFRESH ----------
-time.sleep(3)
-st.rerun()
+# ---------- AUTO REFRESH FIX ----------
+st.markdown(
+    """
+    <script>
+    setTimeout(function(){
+        window.location.reload();
+    }, 3000);
+    </script>
+    """,
+    unsafe_allow_html=True
+)
