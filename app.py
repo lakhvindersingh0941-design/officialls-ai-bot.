@@ -6,45 +6,48 @@ import random
 import requests
 from datetime import datetime, timedelta
 
-# Page Config (Fixed for Render)
 st.set_page_config(page_title="OfficialLS Pro AI", layout="wide")
 
-# Persistent Data
 if 'wallet' not in st.session_state: st.session_state.wallet = 10.0
 if 'history' not in st.session_state: st.session_state.history = []
 if 'last_p' not in st.session_state: st.session_state.last_p = 0
 
-# Sidebar with Fixed IP
 with st.sidebar:
     st.title("OfficialLS AI Bot")
     st.info("Delta Whitelist IP: 74.220.48.23")
     acc_mode = st.radio("Account Mode", ["Demo ($10)", "Real Delta"])
-    api_key = st.text_input("Delta API Key", type="password") if acc_mode == "Real Delta" else ""
-    api_secret = st.text_input("Delta API Secret", type="password") if acc_mode == "Real Delta" else ""
+    api_key = st.text_input("Delta API Key", type="password")
+    api_secret = st.text_input("Delta API Secret", type="password")
     lev = st.select_slider("Leverage", [10, 25, 50, 100], 50)
 
-# Exchange Connection
 def connect_exchange(key, secret, mode):
     if mode == "Real Delta" and key and secret:
         try:
-            ex = ccxt.delta({'apiKey': key.strip(), 'secret': secret.strip(), 'enableRateLimit': True})
+            ex = ccxt.delta({
+                'apiKey': key.strip(),
+                'secret': secret.strip(),
+                'enableRateLimit': True,
+                'options': {'adjustForTimeDifference': True}
+            })
             ex.fetch_balance()
             return ex, "SUCCESS"
         except Exception as e:
-            return None, str(e)
+            # Ye line asli error batayegi
+            return None, f"Error: {str(e)}"
     return ccxt.delta(), "DEMO"
 
 exchange, conn_status = connect_exchange(api_key, api_secret, acc_mode)
 
-# UI Display
-st.title("📊 OfficialLS AI Professional Terminal")
-if conn_status == "SUCCESS": st.success("✅ Real Account Connected!")
-elif conn_status != "DEMO": st.warning(f"⚠️ {conn_status}")
+st.title("📊 OfficialLS AI Terminal")
 
-# Chart
+if conn_status == "SUCCESS":
+    st.success("✅ Real Account Connected!")
+elif "Error" in conn_status:
+    st.error(f"❌ Connection Failed: {conn_status}")
+    st.info("Tip: Check if IP 74.220.48.23 is added to Delta Whitelist.")
+
 st.components.v1.html('<div style="height:400px;"><div id="tv" style="height:100%;"></div><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"autosize":true,"symbol":"BINANCE:BTCUSDT","interval":"1","theme":"dark","container_id":"tv"});</script></div>', height=400)
 
-# Main Data Loop
 data_area = st.empty()
 while True:
     try:
@@ -71,3 +74,4 @@ while True:
         if st.session_state.history:
             st.dataframe(pd.DataFrame(st.session_state.history).head(10), use_container_width=True)
     time.sleep(2)
+        
