@@ -6,7 +6,7 @@ import random
 import requests
 from datetime import datetime, timedelta
 
-# 1. Page Config
+# 1. Page Configuration
 st.set_page_config(page_title="OfficialLS Pro AI Terminal", layout="wide")
 
 # Persistent States
@@ -31,19 +31,15 @@ with st.sidebar:
         st.session_state.history = []
         st.rerun()
 
-# 3. Connection Logic (FORCED CONNECT)
+# 3. Connection Logic
 def connect_exchange(k, s, m):
     if m == "Real Delta Account" and k and s:
         try:
-            # Direct Connection without extra headers to avoid 'Invalid' error
             ex = ccxt.delta({
                 'apiKey': k.strip(),
                 'secret': s.strip(),
                 'enableRateLimit': True,
-                'options': {
-                    'adjustForTimeDifference': True,
-                    'recvWindow': 60000 # Max window for slow connections
-                }
+                'options': {'adjustForTimeDifference': True}
             })
             ex.fetch_balance()
             return ex, "SUCCESS"
@@ -53,16 +49,15 @@ def connect_exchange(k, s, m):
 
 exchange, conn_status = connect_exchange(api_k, api_s, acc_mode)
 
-# 4. UI: Metrics & Terminal
+# 4. MAIN UI
 st.title("📊 OfficialLS AI Professional Terminal")
 
 if conn_status == "SUCCESS":
     st.success("✅ Real Delta Account Connected!")
 elif acc_mode == "Real Delta Account":
     st.error(f"❌ Connection Issue: {conn_status}")
-    st.info("Tip: Delta API settings mein 'Permissions' (Read/Trading) zaroor check karein.")
 
-# Layout
+# Metrics Row
 m1, m2, m3, m4 = st.columns(4)
 p_price = m1.empty()
 p_wallet = m2.empty()
@@ -74,18 +69,18 @@ st.divider()
 col_sig, col_main = st.columns([1, 3])
 
 with col_sig:
-    st.subheader("AI Signals & News")
+    st.subheader("📰 AI News & Signals")
     st.success("Signal: BULLISH (72.8k Support)")
     st.info("Trend: Market Volume High")
     st.divider()
-    st.subheader("Trade Config")
+    st.subheader("📊 Trade Config")
     st.write("Fees: 0.1% (Entry+Exit)")
     st.write("SL: 0.8% | TP: 1.5%")
     st.divider()
     p_sigs = st.empty()
 
 with col_main:
-    # Professional Chart
+    # TradingView Chart
     st.components.v1.html("""
     <div style="height:420px; border-radius: 10px; overflow: hidden;">
         <div id="tv" style="height:100%;"></div>
@@ -117,19 +112,25 @@ while True:
         pos_val = margin * lev
         fee = pos_val * 0.001
         
+        # PNL Simulation
+        pnl = (random.uniform(-0.5, 1.2) * (lev/10)) - fee
+        
         # SL/TP logic
         sl = price * 0.992 if price > st.session_state.last_p else price * 1.008
         tp = price * 1.015 if price > st.session_state.last_p else price * 0.985
         
-        pnl = (random.uniform(-0.5, 1.2) * (lev/10)) - fee
-        
         if conn_status != "SUCCESS":
-            st.session_state.wallet += net_pnl = pnl
+            st.session_state.wallet += pnl
 
         st.session_state.history.insert(0, {
-            "Time (IST)": ist, "Side": "LONG" if price > st.session_state.last_p else "SHORT",
-            "Entry": price, "SL": round(sl, 1), "TP": round(tp, 1),
-            "Fee": round(fee, 3), "PNL": round(pnl, 2), "Wallet": round(st.session_state.wallet, 2)
+            "Time (IST)": ist, 
+            "Side": "LONG" if price > st.session_state.last_p else "SHORT",
+            "Entry": price, 
+            "SL": round(sl, 1), 
+            "TP": round(tp, 1),
+            "Fee": round(fee, 3), 
+            "PNL": round(pnl, 2), 
+            "Wallet": round(st.session_state.wallet, 2)
         })
 
     st.session_state.last_p = price
@@ -139,7 +140,8 @@ while True:
     
     with p_hist:
         if st.session_state.history:
-            st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
+            df = pd.DataFrame(st.session_state.history)
+            st.dataframe(df.style.map(lambda v: f'color: {"#00ff00" if v > 0 else "#ff0000"}', subset=['PNL']), use_container_width=True)
     
     time.sleep(2)
-            
+    
