@@ -67,10 +67,10 @@ def connect_exchange(k, s, m):
 exchange, conn_status = connect_exchange(api_k, api_s, acc_mode)
 
 # 4. DASHBOARD UI
-st.title(f"📊 OfficialLS Professional Terminal: {asset[:3]}")
+st.title(f"📊 OfficialLS AI Terminal: {asset[:3]}")
 
 if conn_status == "SUCCESS":
-    st.success(f"✅ Real Delta India Connected | Balance Detected")
+    st.success(f"✅ Real Delta India Connected | Balance Sync")
 elif acc_mode == "Real Delta India":
     st.error(f"❌ Connection Issue: {conn_status}")
 
@@ -125,7 +125,6 @@ while True:
         # Sync Real Wallet Data
         if conn_status == "SUCCESS":
             balance_info = exchange.fetch_balance()
-            # Fixed: Fetching from 'total' to catch even small balances like $0.61
             st.session_state.wallet_bal = balance_info.get('total', {}).get('USDT', 0.0)
             
             # Fetch real positions
@@ -149,13 +148,11 @@ while True:
             if conn_status == "SUCCESS":
                 try:
                     exchange.set_leverage(lev, current_symbol)
-                    # Min order size 0.001
                     order = exchange.create_order(current_symbol, 'market', side, 0.001)
                     order_status = "REAL ORDER PLACED"
                 except Exception as e:
                     order_status = f"Failed: {str(e)}"
             else:
-                # Simulation PNL for Demo
                 fee = (st.session_state.wallet_bal * 0.05 * lev) * 0.001
                 pnl_sim = (random.uniform(-0.3, 0.9) * (lev/10)) - fee
                 st.session_state.wallet_bal += pnl_sim
@@ -172,7 +169,13 @@ while True:
         p_wallet.metric("Account Wallet", f"${st.session_state.wallet_bal:,.3f}")
         p_sigs.code(f"🔴 SELL {asset[:3]}: {price + 1.5}\n🟢 BUY {asset[:3]}:  {price - 1.0}")
         
-        with p_hist:
+        with p_hist.container():
             if st.session_state.history:
-                st.dataframe(pd.DataFrame(st.session_state.history), use_
+                st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
                 
+    except Exception as e:
+        if "market symbol" not in str(e).lower():
+            st.error(f"System Error: {e}")
+    
+    time.sleep(2)
+    
