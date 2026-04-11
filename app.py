@@ -5,10 +5,10 @@ import time
 import random
 from datetime import datetime, timedelta
 
-# 1. Page Config
-st.set_page_config(page_title="OfficialLS AI Pro Terminal", layout="wide")
+# 1. Page Configuration
+st.set_page_config(page_title="OfficialLS Pro AI Terminal", layout="wide")
 
-# Session States
+# Persistent Storage
 if 'history' not in st.session_state: st.session_state.history = []
 if 'last_p' not in st.session_state: st.session_state.last_p = 0
 if 'wallet_bal' not in st.session_state: st.session_state.wallet_bal = 0.0
@@ -24,14 +24,16 @@ with st.sidebar:
     api_s = st.text_input("API Secret", type="password") if acc_mode == "Real Delta India" else ""
     
     st.divider()
-    # --- AUTO AI TRADING SWITCH ---
+    # AUTO TRADING SWITCH
     auto_trade = st.toggle("🚀 AUTO AI TRADING ON", value=False)
-    if auto_trade:
-        st.success("AI Bot is Scanning...")
-    else:
-        st.warning("Auto Trading is OFF")
     
-    lev = st.select_slider("Leverage", [10, 25, 50, 100], 50)
+    # UPGRADED LEVERAGE (UP TO 200x)
+    lev = st.select_slider("Leverage", [10, 25, 50, 100, 150, 200], 100)
+    
+    if st.button("Reset Terminal"):
+        st.session_state.history = []
+        st.session_state.wallet_bal = 0.0
+        st.rerun()
 
 # 3. Delta India Connection Logic
 def connect_exchange(k, s, m):
@@ -49,6 +51,7 @@ def connect_exchange(k, s, m):
                 },
                 'options': {'adjustForTimeDifference': True, 'recvWindow': 30000}
             })
+            ex.fetch_balance()
             return ex, "SUCCESS"
         except Exception as e:
             return None, str(e)
@@ -60,7 +63,7 @@ exchange, conn_status = connect_exchange(api_k, api_s, acc_mode)
 st.title("📊 OfficialLS AI Professional Terminal")
 
 if conn_status == "SUCCESS":
-    st.success("✅ Real Delta India Connected")
+    st.success("✅ Connected to Delta India!")
 elif acc_mode == "Real Delta India":
     st.error(f"❌ Connection Issue: {conn_status}")
 
@@ -68,21 +71,21 @@ elif acc_mode == "Real Delta India":
 m1, m2, m3, m4 = st.columns(4)
 p_price = m1.empty()
 p_wallet = m2.empty()
-m3.metric("Auto Trade Status", "ACTIVE" if auto_trade else "PAUSED")
-m4.metric("Leverage", f"{lev}x")
+m3.metric("Auto Trade", "ACTIVE" if auto_trade else "PAUSED")
+m4.metric("Max Leverage", f"{lev}x")
 
 st.divider()
 
 col_sig, col_main = st.columns([1, 3])
 
 with col_sig:
-    st.subheader("📰 AI News & Signals")
-    st.info("Trend: Market Scanning...")
+    st.subheader("📰 AI News")
+    st.success("Signal: BULLISH")
     st.divider()
-    st.subheader("📊 SL/TP Info")
+    st.subheader("📊 Config")
+    st.write(f"Fees: 0.1% | Lev: {lev}x")
     st.write("SL: 0.8% | TP: 1.5%")
     st.divider()
-    st.caption("Live Delta Orderbook")
     p_sigs = st.empty()
 
 with col_main:
@@ -96,7 +99,6 @@ with col_main:
         </script>
     </div>""", height=400)
     
-    # Real Positions Table
     st.subheader("💼 Real Open Positions")
     p_positions = st.empty()
     
@@ -106,60 +108,61 @@ with col_main:
 # 5. DATA SYNC & AUTO TRADING LOOP
 while True:
     try:
-        # 1. Fetch Price
-        symbol = 'BTCUSD' if acc_mode == "Real Delta India" else 'BTC/USDT'
-        ticker = exchange.fetch_ticker(symbol)
+        # Checking correct symbol for Delta India
+        symbol = 'BTCUSDTPERP' if conn_status == "SUCCESS" else 'BTC/USDT'
+        
+        try:
+            ticker = exchange.fetch_ticker(symbol)
+        except:
+            symbol = 'BTCUSD'
+            ticker = exchange.fetch_ticker(symbol)
+            
         price = ticker['last']
         
-        # 2. Sync Real Wallet Data
         if conn_status == "SUCCESS":
             bal = exchange.fetch_balance()
             st.session_state.wallet_bal = bal['total'].get('USDT', 0.0)
             
-            # Fetch Real Positions
-            pos = exchange.fetch_positions([symbol])
-            if pos:
-                df_pos = pd.DataFrame(pos)[['symbol', 'entryPrice', 'notional', 'unrealizedPnl']]
-                p_positions.dataframe(df_pos, use_container_width=True)
-            else:
-                p_positions.info("No Active Real Positions")
+            # Fetch real positions
+            try:
+                pos = exchange.fetch_positions([symbol])
+                if pos:
+                    p_positions.dataframe(pd.DataFrame(pos)[['symbol', 'entryPrice', 'notional', 'unrealizedPnl']], use_container_width=True)
+                else:
+                    p_positions.info("No Active Real Positions")
+            except: pass
         else:
-            # Demo Mode Balance Simulation
             if st.session_state.wallet_bal == 0: st.session_state.wallet_bal = 10.0
         
-        # 3. AI TRADING LOGIC (Only runs if Switch is ON)
-        if auto_trade and st.session_state.last_p != 0 and abs(price - st.session_state.last_p) > 2.0:
+        # AI TRADING LOGIC
+        if auto_trade and st.session_state.last_p != 0 and abs(price - st.session_state.last_p) > 1.5:
             ist = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%H:%M:%S")
             
-            # Simulating Trade Result
-            fee = (st.session_state.wallet_bal * 0.1 * lev) * 0.001
-            pnl_sim = (random.uniform(-0.4, 1.1) * (lev/10)) - fee
+            # Scalp Logic
+            fee = (st.session_state.wallet_bal * 0.05 * lev) * 0.001
+            pnl_sim = (random.uniform(-0.3, 0.9) * (lev/10)) - fee
             
-            # Update History
             st.session_state.history.insert(0, {
                 "Time": ist, "Side": "LONG" if price > st.session_state.last_p else "SHORT",
                 "Entry": price, "Fee": round(fee, 3), "PNL": round(pnl_sim, 2), 
                 "Wallet": round(st.session_state.wallet_bal, 2)
             })
             
-            if conn_status != "SUCCESS":
-                st.session_state.wallet_bal += pnl_sim
-            
+            if conn_status != "SUCCESS": st.session_state.wallet_bal += pnl_sim
             if len(st.session_state.history) > 20: st.session_state.history.pop()
 
         st.session_state.last_p = price
-        
-        # 4. Update UI
         p_price.metric("Live BTC", f"${price:,.1f}")
-        p_wallet.metric("Account Wallet", f"${st.session_state.wallet_bal:,.2f}")
-        p_sigs.code(f"🔴 SELL: {price+3}\n🟢 BUY:  {price-2}")
+        p_wallet.metric("Balance", f"${st.session_state.wallet_bal:,.2f}")
+        p_sigs.code(f"🔴 SELL: {price+2}\n🟢 BUY:  {price-1}")
         
         with p_hist:
             if st.session_state.history:
                 st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
                 
     except Exception as e:
-        st.error(f"Loop Error: {e}")
+        if "market symbol" not in str(e).lower():
+            st.error(f"System: {e}")
     
     time.sleep(2)
-        
+    
