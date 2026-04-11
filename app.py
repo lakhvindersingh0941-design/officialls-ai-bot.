@@ -105,7 +105,7 @@ else:
         if debug:
             st.write("API Response:", res)
 
-        # ✅ FIXED PART (USD + USDT)
+        # ✅ FIX (USD + USDT)
         for i in res.get("result", []):
             if i.get("asset_symbol") in ["USD", "USDT"]:
                 balance = float(i.get("balance", 0))
@@ -126,35 +126,65 @@ else:
 
 col2.metric("Balance", f"${balance:.4f}")
 
-# ---------- SIGNAL ----------
+# ---------- ADVANCED SIGNAL ----------
 def get_signal():
     try:
         r = requests.get(f"https://api.india.delta.exchange/v2/candles?symbol={asset}&resolution=1m").json()
         data = r["result"]
 
-        closes = [float(c["close"]) for c in data][-30:]
+        closes = [float(c["close"]) for c in data][-50:]
+        volumes = [float(c["volume"]) for c in data][-50:]
 
+        # EMA
         ema5 = sum(closes[-5:]) / 5
         ema20 = sum(closes[-20:]) / 20
 
-        momentum = closes[-1] - closes[-3]
+        # RSI
+        gains = []
+        losses = []
 
-        if ema5 > ema20 and momentum > 0:
+        for i in range(-14, -1):
+            diff = closes[i+1] - closes[i]
+            if diff > 0:
+                gains.append(diff)
+            else:
+                losses.append(abs(diff))
+
+        avg_gain = sum(gains)/14 if gains else 0.0001
+        avg_loss = sum(losses)/14 if losses else 0.0001
+
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+
+        # Volume
+        avg_vol = sum(volumes[-10:]) / 10
+        volume_spike = volumes[-1] > avg_vol * 1.5
+
+        # Candle
+        last_open = float(data[-1]["open"])
+        last_close = float(data[-1]["close"])
+
+        bullish = last_close > last_open
+        bearish = last_close < last_open
+
+        # Signal
+        if ema5 > ema20 and rsi > 55 and volume_spike and bullish:
             return "BUY"
-        elif ema5 < ema20 and momentum < 0:
+        elif ema5 < ema20 and rsi < 45 and volume_spike and bearish:
             return "SELL"
         else:
             return "HOLD"
+
     except:
         return "HOLD"
 
-# ---------- LOT SIZE ----------
+# ---------- LOT ----------
 trade_capital = (balance * capital_percent) / 100
 
 if price > 0:
     qty = (trade_capital * leverage) / price
     qty = round(qty, 3)
-    qty = max(qty, 1)  # minimum 1
+    qty = max(qty, 1)
 else:
     qty = 1
 
@@ -185,7 +215,8 @@ if auto_ai and connected and price != 0 and product_id:
 
     signal = get_signal()
 
-    cooldown = time.time() - st.session_state.last_trade_time > 5
+    # ✅ FAST SCALPING COOLDOWN
+    cooldown = time.time() - st.session_state.last_trade_time > 2
 
     if signal in ["BUY", "SELL"] and cooldown:
 
