@@ -6,45 +6,34 @@ import random
 import requests
 from datetime import datetime, timedelta
 
-# 1. Page Config
-st.set_page_config(page_title="OfficialLS Pro AI Terminal", layout="wide")
+# --- RENDER COMPATIBILITY ---
+st.set_page_config(page_title="OfficialLS Pro AI", layout="wide")
 
-# 2. Setup States
+# Persistent Data Setup
 if 'wallet' not in st.session_state: st.session_state.wallet = 10.0
 if 'history' not in st.session_state: st.session_state.history = []
 if 'last_p' not in st.session_state: st.session_state.last_p = 0
 
-# 3. SIDEBAR (IP & Connection)
+# --- SIDEBAR (IP & Connection) ---
 with st.sidebar:
     st.title("OfficialLS AI Bot")
-    
     try:
         current_bot_ip = requests.get('https://api.ipify.org').text
-        st.warning(f"Delta API Whitelist IP: {current_bot_ip}")
+        st.error(f"🔴 Delta Whitelist IP: {current_bot_ip}")
+        st.caption("Ise Delta API mein update karein.")
     except:
         current_bot_ip = "Unknown"
 
-    acc_mode = st.radio("Account Mode", ["Paper Trade ($10)", "Real Delta Account"])
-    
-    api_key = st.text_input("Delta API Key", type="password") if acc_mode == "Real Delta Account" else ""
-    api_secret = st.text_input("Delta API Secret", type="password") if acc_mode == "Real Delta Account" else ""
-
-    auto_bot = st.toggle("Activate AI Trading", value=True)
+    acc_mode = st.radio("Account Mode", ["Demo ($10)", "Real Delta"])
+    api_key = st.text_input("Delta API Key", type="password") if acc_mode == "Real Delta" else ""
+    api_secret = st.text_input("Delta API Secret", type="password") if acc_mode == "Real Delta" else ""
     lev = st.select_slider("Leverage", [10, 25, 50, 100], 50)
 
-# 4. Exchange Connection Logic
+# --- EXCHANGE CONNECTION ---
 def connect_exchange(key, secret, mode):
-    if mode == "Real Delta Account" and key and secret:
+    if mode == "Real Delta" and key and secret:
         try:
-            ex = ccxt.delta({
-                'apiKey': key.strip(),
-                'secret': secret.strip(),
-                'enableRateLimit': True,
-                'options': {
-                    'adjustForTimeDifference': True,
-                    'recvWindow': 10000 
-                }
-            })
+            ex = ccxt.delta({'apiKey': key.strip(), 'secret': secret.strip(), 'enableRateLimit': True})
             ex.fetch_balance()
             return ex, "SUCCESS"
         except Exception as e:
@@ -53,28 +42,22 @@ def connect_exchange(key, secret, mode):
 
 exchange, conn_status = connect_exchange(api_key, api_secret, acc_mode)
 
-# 5. UI DISPLAY
-st.title("📊 OfficialLS AI Professional Terminal")
+# --- UI LAYOUT ---
+st.title("📊 OfficialLS AI Terminal")
 
 if conn_status != "SUCCESS" and conn_status != "DEMO":
-    st.error(f"❌ Connection Failed: {conn_status}")
-    st.info(f"💡 Solution: Delta par IP {current_bot_ip} update karein.")
+    st.warning(f"⚠️ Connection Issue: Update Delta with IP {current_bot_ip}")
 elif conn_status == "SUCCESS":
-    st.success("✅ Real Delta Account Connected!")
+    st.success("✅ Real Account Connected!")
 
-chart_html = """
-<div style="height:400px; border: 1px solid #363a45; border-radius: 8px; overflow: hidden;">
-    <div id="tv_chart" style="height:100%;"></div>
-    <script src="https://s3.tradingview.com/tv.js"></script>
-    <script>
-    new TradingView.widget({"autosize":true,"symbol":"BINANCE:BTCUSDT","interval":"1","theme":"dark","container_id":"tv_chart","timezone":"Asia/Kolkata"});
-    </script>
-</div>"""
-st.components.v1.html(chart_html, height=400)
+# Chart (TradingView)
+st.components.v1.html("""
+<div style="height:450px;"><div id="tv" style="height:100%;"></div><script src="https://s3.tradingview.com/tv.js"></script><script>
+new TradingView.widget({"autosize":true,"symbol":"BINANCE:BTCUSDT","interval":"1","theme":"dark","container_id":"tv","timezone":"Asia/Kolkata"});
+</script></div>""", height=450)
 
-# 6. LIVE SYNC LOOP
+# --- DATA LOOP ---
 placeholder = st.empty()
-
 while True:
     try:
         ticker = exchange.fetch_ticker('BTC/USDT')
@@ -85,35 +68,21 @@ while True:
     except:
         price = st.session_state.last_p if st.session_state.last_p != 0 else 72900.0
 
-    # AI Scalping Logic (IST, Fees, SL/TP - Same as before)
-    if auto_bot and st.session_state.last_p != 0:
-        diff = price - st.session_state.last_p
-        if abs(diff) > 2.0:
-            ist_time = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%H:%M:%S")
-            margin = st.session_state.wallet * 0.1
-            total_fee = (margin * lev) * 0.001
-            net_pnl = (random.uniform(-0.5, 1.2) * (lev/10)) - total_fee
-            
-            if conn_status != "SUCCESS": st.session_state.wallet += net_pnl
-
-            st.session_state.history.insert(0, {
-                "Time (IST)": ist_time,
-                "Type": "LONG" if diff > 0 else "SHORT",
-                "Entry": round(price, 1),
-                "Fees": round(total_fee, 3),
-                "PNL": round(net_pnl, 2),
-                "Wallet": round(st.session_state.wallet, 2)
-            })
+    # Scalping Logic
+    if st.session_state.last_p != 0 and abs(price - st.session_state.last_p) > 2.0:
+        ist_time = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%H:%M:%S")
+        margin = st.session_state.wallet * 0.1
+        total_fee = (margin * lev) * 0.001
+        net_pnl = (random.uniform(-0.5, 1.2) * (lev/10)) - total_fee
+        if conn_status != "SUCCESS": st.session_state.wallet += net_pnl
+        st.session_state.history.insert(0, {"Time (IST)": ist_time, "Entry": price, "Fees": round(total_fee,3), "PNL": round(net_pnl,2), "Wallet": round(st.session_state.wallet,2)})
 
     st.session_state.last_p = price
     with placeholder.container():
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Live BTC", f"${price:,.1f}")
-        m2.metric("Balance", f"${st.session_state.wallet:,.2f}")
-        m3.metric("Mode", "REAL" if conn_status == "SUCCESS" else "DEMO")
-        
+        m1, m2 = st.columns(2)
+        m1.metric("Live BTC", f"${price}")
+        m2.metric("Wallet", f"${st.session_state.wallet:.2f}")
         if st.session_state.history:
-            st.dataframe(pd.DataFrame(st.session_state.history).style.map(lambda v: f'color: {"#00ff00" if v > 0 else "#ff0000"}', subset=['PNL']), use_container_width=True)
-
+            st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True)
     time.sleep(1)
             
