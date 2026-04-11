@@ -1,5 +1,5 @@
 import streamlit as st
-import pd
+import pandas as pd
 import ccxt
 import time
 import random
@@ -18,11 +18,9 @@ if 'last_p' not in st.session_state: st.session_state.last_p = 0
 with st.sidebar:
     st.title("OfficialLS AI Bot")
     
-    # Static IP fetcher to show you what Delta sees
     try:
         current_bot_ip = requests.get('https://api.ipify.org').text
         st.warning(f"Delta API Whitelist IP: {current_bot_ip}")
-        st.caption("Step: Delta mein ye IP save karke 1 minute wait karein.")
     except:
         current_bot_ip = "Unknown"
 
@@ -34,41 +32,36 @@ with st.sidebar:
     auto_bot = st.toggle("Activate AI Trading", value=True)
     lev = st.select_slider("Leverage", [10, 25, 50, 100], 50)
 
-# 4. FIXED Exchange Connection Logic
+# 4. Exchange Connection Logic
 def connect_exchange(key, secret, mode):
     if mode == "Real Delta Account" and key and secret:
         try:
-            # Added more robust config for Delta
             ex = ccxt.delta({
                 'apiKey': key.strip(),
                 'secret': secret.strip(),
                 'enableRateLimit': True,
                 'options': {
-                    'adjustForTimeDifference': True, # Time sync issue fix
-                    'recvWindow': 10000 # Server delay tolerance
+                    'adjustForTimeDifference': True,
+                    'recvWindow': 10000 
                 }
             })
             ex.fetch_balance()
             return ex, "SUCCESS"
         except Exception as e:
-            err_msg = str(e).lower()
-            if "invalid_api_key" in err_msg: return None, "INVALID_KEY"
-            if "request_timeout" in err_msg: return None, "TIMEOUT"
             return None, str(e)
     return ccxt.delta(), "DEMO"
 
 exchange, conn_status = connect_exchange(api_key, api_secret, acc_mode)
 
-# 5. UI DISPLAY & ERROR HELP
+# 5. UI DISPLAY
 st.title("📊 OfficialLS AI Professional Terminal")
 
-if conn_status == "INVALID_KEY":
-    st.error(f"❌ Connection Failed! IP {current_bot_ip} match nahi ho rahi ya Key galat hai.")
-    st.info("💡 Solution: Delta par nayi Key banayein, permissions mein 'View' aur 'Trade' select karein, aur ye IP (34.127.88.74) dobara check karein.")
+if conn_status != "SUCCESS" and conn_status != "DEMO":
+    st.error(f"❌ Connection Failed: {conn_status}")
+    st.info(f"💡 Solution: Delta par IP {current_bot_ip} update karein.")
 elif conn_status == "SUCCESS":
     st.success("✅ Real Delta Account Connected!")
 
-# Chart
 chart_html = """
 <div style="height:400px; border: 1px solid #363a45; border-radius: 8px; overflow: hidden;">
     <div id="tv_chart" style="height:100%;"></div>
@@ -92,7 +85,7 @@ while True:
     except:
         price = st.session_state.last_p if st.session_state.last_p != 0 else 72900.0
 
-    # AI Scalping Logic (IST, Fees, SL/TP)
+    # AI Scalping Logic (IST, Fees, SL/TP - Same as before)
     if auto_bot and st.session_state.last_p != 0:
         diff = price - st.session_state.last_p
         if abs(diff) > 2.0:
@@ -123,4 +116,4 @@ while True:
             st.dataframe(pd.DataFrame(st.session_state.history).style.map(lambda v: f'color: {"#00ff00" if v > 0 else "#ff0000"}', subset=['PNL']), use_container_width=True)
 
     time.sleep(1)
-                        
+            
